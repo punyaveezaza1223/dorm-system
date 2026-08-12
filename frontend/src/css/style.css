@@ -323,3 +323,47 @@
   
   .emptystate{text-align:center;padding:50px 20px;color:var(--text-dim);}
   .emptystate .ic{font-size:30px;margin-bottom:10px;display:block;}
+
+  /* Modal fix */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+
+  background: rgba(15, 42, 46, .55);
+
+  display: none;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 9999;
+
+  padding: 20px;
+}
+
+.modal-overlay.active {
+  display: flex !important;
+}
+
+.modal-overlay.active {
+  display: flex !important;
+}
+
+.modal {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+
+  background: #fff !important;
+  color: var(--text);
+
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+
+  padding: 26px;
+
+  box-shadow: 0 30px 70px rgba(0, 0, 0, .35);
+
+  position: relative;
+  z-index: 10000;
+}
