@@ -15,5 +15,11 @@ The React Compiler is not enabled on this template because of its impact on dev 
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
 
-start engin = Frontend -->terminal/ cd frontend --> npm run dev
-              
+start engin =1. Frontend -->terminal/ cd frontend --> npm run dev
+             2. Open Docker
+             3. Backend  -->terminal/ cd backend  --> docker compose up
+             2. Backend  -->terminal/ cd backend  --> node server.js
+adminaccount = Username: admin2
+               Password: admin123
+usertestaccount = Username: Usertest1
+                  Password: usertest1

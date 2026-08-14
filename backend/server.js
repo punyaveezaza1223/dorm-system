@@ -1,11 +1,59 @@
 import express from "express";
 import cors from "cors";
 import db from "./db.js";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// =================================
+// JWT Secret
+// =================================
+
+const JWT_SECRET = "rental-system-secret-key";
+
+// =================================
+// Authentication Middleware
+// =================================
+
+const authenticateToken = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "กรุณาเข้าสู่ระบบ",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "ไม่พบ Token",
+      });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    req.user = decoded;
+
+    next();
+
+  } catch (error) {
+    console.error("Auth Error:", error);
+
+    return res.status(401).json({
+      success: false,
+      message: "Session หมดอายุหรือ Token ไม่ถูกต้อง",
+    });
+  }
+};
 
 // =================================
 // Test Backend
@@ -771,6 +819,609 @@ app.get("/api/users/tenant/:id", async (req, res) => {
     });
   }
 });
+
+// =================================
+// Register API
+// =================================
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const {
+      firstName,
+      lastName,
+      phone,
+      email,
+      username,
+      password,
+    } = req.body;
+
+    // -----------------------------
+    // ตรวจสอบข้อมูล
+    // -----------------------------
+
+    if (
+      !firstName ||
+      !lastName ||
+      !phone ||
+      !email ||
+      !username ||
+      !password
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "กรุณากรอกข้อมูลให้ครบ",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร",
+      });
+    }
+
+    // -----------------------------
+    // ตรวจสอบ username
+    // -----------------------------
+
+    const [existingUsername] = await db.query(
+      `
+      SELECT id
+      FROM users
+      WHERE username = ?
+      LIMIT 1
+      `,
+      [username]
+    );
+
+    if (existingUsername.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Username นี้ถูกใช้งานแล้ว",
+      });
+    }
+
+    // -----------------------------
+    // ตรวจสอบ email
+    // -----------------------------
+
+    const [existingEmail] = await db.query(
+      `
+      SELECT id
+      FROM users
+      WHERE email = ?
+      LIMIT 1
+      `,
+      [email]
+    );
+
+    if (existingEmail.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Email นี้ถูกใช้งานแล้ว",
+      });
+    }
+
+    // -----------------------------
+    // ตรวจสอบเบอร์โทร
+    // -----------------------------
+
+    const [existingPhone] = await db.query(
+      `
+      SELECT id
+      FROM users
+      WHERE phone = ?
+      LIMIT 1
+      `,
+      [phone]
+    );
+
+    if (existingPhone.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว",
+      });
+    }
+
+    // -----------------------------
+    // Hash Password
+    // -----------------------------
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // -----------------------------
+    // เพิ่ม User
+    // -----------------------------
+
+    const [result] = await db.query(
+      `
+      INSERT INTO users
+      (
+        username,
+        password,
+        role,
+        full_name,
+        phone,
+        email
+      )
+      VALUES (?, ?, 'tenant', ?, ?, ?)
+      `,
+      [
+        username,
+        hashedPassword,
+        `${firstName} ${lastName}`,
+        phone,
+        email,
+      ]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "สมัครสมาชิกเรียบร้อย",
+      userId: result.insertId,
+    });
+
+  } catch (error) {
+    console.error("Register Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "ไม่สามารถสมัครสมาชิกได้",
+      error: error.message,
+    });
+  }
+});
+
+// =================================
+// Login API
+// =================================
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const {
+      login,
+      password,
+      role,
+    } = req.body;
+
+    if (!login || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "กรุณากรอก Username / Email / เบอร์โทร และรหัสผ่าน",
+      });
+    }
+
+    // -----------------------------
+    // ค้นหา User
+    // -----------------------------
+
+    const [users] = await db.query(
+      `
+      SELECT
+        id,
+        username,
+        password,
+        role,
+        full_name,
+        phone,
+        email
+      FROM users
+      WHERE
+        username = ?
+        OR email = ?
+        OR phone = ?
+      LIMIT 1
+      `,
+      [login, login, login]
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "ไม่พบผู้ใช้งานนี้",
+      });
+    }
+
+    const user = users[0];
+
+    // -----------------------------
+    // ตรวจสอบ Role
+    // -----------------------------
+
+    if (role && user.role !== role) {
+      return res.status(403).json({
+        success: false,
+        message: "ประเภทบัญชีไม่ถูกต้อง",
+      });
+    }
+
+    // -----------------------------
+    // ตรวจสอบ Password
+    // -----------------------------
+
+    const passwordMatch = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "รหัสผ่านไม่ถูกต้อง",
+      });
+    }
+
+    // -----------------------------
+    // สร้าง JWT
+    // -----------------------------
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        role: user.role,
+        username: user.username,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+
+    // -----------------------------
+    // ส่งข้อมูล User
+    // -----------------------------
+
+    res.json({
+      success: true,
+      message: "เข้าสู่ระบบสำเร็จ",
+
+      token,
+
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        fullName: user.full_name,
+        phone: user.phone,
+        email: user.email,
+      },
+    });
+
+  } catch (error) {
+    console.error("Login Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "ไม่สามารถเข้าสู่ระบบได้",
+      error: error.message,
+    });
+  }
+});
+
+// =================================
+// Tenant Profile + Room API
+// =================================
+
+app.get(
+  "/api/tenant/me",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      // -----------------------------
+      // ข้อมูล User
+      // -----------------------------
+
+      const [users] = await db.query(
+        `
+        SELECT
+          id,
+          username,
+          full_name,
+          phone,
+          email,
+          role
+        FROM users
+        WHERE id = ?
+          AND role = 'tenant'
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+      if (users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "ไม่พบข้อมูลลูกบ้าน",
+        });
+      }
+
+      const user = users[0];
+
+      // -----------------------------
+      // ห้อง + สัญญา
+      // -----------------------------
+
+      const [rooms] = await db.query(
+        `
+        SELECT
+          r.id AS room_id,
+          r.room_number,
+          r.floor,
+          r.type,
+          r.size_sqm,
+          r.monthly_rent AS room_rent,
+          r.status AS room_status,
+          r.description,
+
+          c.id AS contract_id,
+          c.start_date,
+          c.end_date,
+          c.monthly_rent AS contract_rent,
+          c.deposit,
+          c.status AS contract_status,
+          c.note AS contract_note
+
+        FROM contracts c
+
+        INNER JOIN rooms r
+          ON r.id = c.room_id
+
+        WHERE c.tenant_id = ?
+          AND c.status = 'active'
+
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+      const room = rooms.length > 0
+        ? rooms[0]
+        : null;
+
+      // -----------------------------
+      // ส่งข้อมูล
+      // -----------------------------
+
+      res.json({
+        success: true,
+
+        user: {
+          id: user.id,
+          username: user.username,
+          fullName: user.full_name,
+          phone: user.phone,
+          email: user.email,
+          role: user.role,
+        },
+
+        room,
+
+      });
+
+    } catch (error) {
+      console.error("Tenant Me Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงข้อมูลลูกบ้านได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =================================
+// Tenant Payments API
+// =================================
+
+app.get(
+  "/api/tenant/payments",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      const [payments] = await db.query(
+        `
+        SELECT
+          p.id,
+          p.contract_id,
+          p.amount,
+          p.due_date,
+          p.paid_date,
+          p.status,
+          p.slip_url,
+          p.note,
+
+          r.room_number
+
+        FROM payments p
+
+        INNER JOIN contracts c
+          ON c.id = p.contract_id
+
+        INNER JOIN rooms r
+          ON r.id = c.room_id
+
+        WHERE p.tenant_id = ?
+
+        ORDER BY p.due_date DESC
+        `,
+        [userId]
+      );
+
+      res.json({
+        success: true,
+        data: payments,
+      });
+
+    } catch (error) {
+      console.error("Tenant Payments Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงข้อมูลการชำระเงินได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =================================
+// Tenant Complaints API
+// =================================
+
+app.get(
+  "/api/tenant/complaints",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      const [complaints] = await db.query(
+        `
+        SELECT
+          cp.id,
+          cp.room_id,
+          cp.tenant_id,
+          cp.type,
+          cp.title,
+          cp.description,
+          cp.status,
+          cp.image_url,
+          cp.created_at,
+          cp.updated_at,
+
+          r.room_number
+
+        FROM complaints cp
+
+        INNER JOIN rooms r
+          ON r.id = cp.room_id
+
+        WHERE cp.tenant_id = ?
+
+        ORDER BY cp.created_at DESC
+        `,
+        [userId]
+      );
+
+      res.json({
+        success: true,
+        data: complaints,
+      });
+
+    } catch (error) {
+      console.error("Tenant Complaints Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงข้อมูลการแจ้งซ่อมได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =================================
+// Create Tenant Complaint
+// =================================
+
+app.post(
+  "/api/tenant/complaints",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      const {
+        type,
+        title,
+        description,
+      } = req.body;
+
+      if (!type || !title || !description) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกข้อมูลให้ครบ",
+        });
+      }
+
+      // -----------------------------
+      // หาห้องของลูกบ้าน
+      // -----------------------------
+
+      const [rooms] = await db.query(
+        `
+        SELECT
+          r.id AS room_id
+        FROM contracts c
+
+        INNER JOIN rooms r
+          ON r.id = c.room_id
+
+        WHERE c.tenant_id = ?
+          AND c.status = 'active'
+
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+      if (rooms.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "คุณยังไม่มีห้องพัก",
+        });
+      }
+
+      const roomId = rooms[0].room_id;
+
+      // -----------------------------
+      // เพิ่มรายการแจ้งซ่อม
+      // -----------------------------
+
+      const [result] = await db.query(
+        `
+        INSERT INTO complaints
+        (
+          room_id,
+          tenant_id,
+          type,
+          title,
+          description,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, 'open')
+        `,
+        [
+          roomId,
+          userId,
+          type,
+          title,
+          description,
+        ]
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "แจ้งซ่อมเรียบร้อย",
+        complaintId: result.insertId,
+      });
+
+    } catch (error) {
+      console.error("Create Complaint Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถแจ้งซ่อมได้",
+        error: error.message,
+      });
+    }
+  }
+);
 
 // =================================
 // Start Server
