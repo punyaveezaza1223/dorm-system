@@ -175,6 +175,7 @@ export default function Room() {
       monthlyRent: "",
       roomStatus: "available",
       tenantName: "",
+      description: "",
     });
 
     setModalType("add");
@@ -186,49 +187,52 @@ export default function Room() {
   // =================================
 
   const openEditRoom = (room) => {
-    setSelectedRoom(room);
+  setSelectedRoom(room);
 
-    setRoomForm({
-      roomNumber:
-        room.roomNumber ||
-        room.room_number ||
-        "",
+  setRoomForm({
+    roomNumber:
+      room.roomNumber ||
+      room.room_number ||
+      "",
 
-      floor:
-        room.floor ||
-        "",
+    floor:
+      room.floor ||
+      "",
 
-      type:
-        room.type ||
-        "studio",
+    type:
+      room.type ||
+      "studio",
 
-      size:
-        room.size ||
-        "",
+    size:
+      room.size ||
+      "",
 
-      monthlyRent:
-        room.rent ??
-        room.monthlyRent ??
-        room.monthly_rent ??
-        "",
+    monthlyRent:
+      room.rent ??
+      room.monthlyRent ??
+      room.monthly_rent ??
+      "",
 
-      roomStatus:
-        room.roomStatus ||
-        room.room_status ||
-        room.status ||
-        "available",
+    roomStatus:
+      room.roomStatus ||
+      room.room_status ||
+      room.status ||
+      "available",
 
-      tenantName:
-        room.tenantName ||
-        room.tenant_name ||
-        room.tenant ||
-        "",
-    });
+    tenantName:
+      room.tenantName ??
+      room.tenant_name ??
+      room.tenant ??
+      "",
 
-    setModalType("edit");
-    setShowModal(true);
-  };
+    description:
+      room.description ??
+      "",
+  });
 
+  setModalType("edit");
+  setShowModal(true);
+};
   // =================================
   // เปิดทำสัญญา
   // =================================
@@ -270,49 +274,85 @@ export default function Room() {
   // =================================
 
   const saveRoom = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    try {
-      const isEdit = modalType === "edit";
+  try {
+    const isEdit = modalType === "edit";
 
-      const url = isEdit
-        ? `${API_URL}/rooms/${selectedRoom.id}`
-        : `${API_URL}/rooms`;
+    const url = isEdit
+      ? `${API_URL}/rooms/${selectedRoom.id}`
+      : `${API_URL}/rooms`;
 
-      const method = isEdit ? "PUT" : "POST";
+    const method = isEdit ? "PUT" : "POST";
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(roomForm),
-      });
+    // ==========================================
+    // ถ้าลบชื่อผู้เช่าออก
+    // ให้ส่ง null ไป Backend
+    // ==========================================
 
-      const data = await response.json();
+    const tenantName =
+      roomForm.tenantName?.trim() || null;
 
-      if (!response.ok || !data.success) {
-        throw new Error(
-          data.message ||
-            "ไม่สามารถบันทึกข้อมูลห้องได้"
-        );
-      }
+    const roomStatus =
+      !tenantName && isEdit
+        ? "available"
+        : roomForm.roomStatus;
 
-      closeModal();
+    const payload = {
+      roomNumber: roomForm.roomNumber,
+      floor: roomForm.floor,
+      type: roomForm.type,
+      size: roomForm.size,
+      monthlyRent: roomForm.monthlyRent,
+      roomStatus: roomStatus,
 
-      await fetchRooms();
+      // สำคัญ
+      tenantName: tenantName,
 
-      triggerToast(
-        isEdit
-          ? "แก้ไขข้อมูลห้องเรียบร้อย"
-          : "เพิ่มห้องพักใหม่เรียบร้อย"
+      // description
+      description: roomForm.description,
+    };
+
+    console.log("ส่งข้อมูลแก้ไขห้อง:", payload);
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    console.log("ผลจาก Backend:", data);
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.message ||
+          "ไม่สามารถบันทึกข้อมูลห้องได้"
       );
-    } catch (error) {
-      console.error("Save Room Error:", error);
-
-      triggerToast(error.message);
     }
-  };
+
+    closeModal();
+
+    await fetchRooms();
+
+    triggerToast(
+      isEdit
+        ? "แก้ไขข้อมูลห้องเรียบร้อย"
+        : "เพิ่มห้องพักใหม่เรียบร้อย"
+    );
+
+  } catch (error) {
+    console.error(
+      "Save Room Error:",
+      error
+    );
+
+    triggerToast(error.message);
+  }
+};
 
   // =================================
   // ค้นหาผู้เช่าจาก ID
@@ -1054,6 +1094,26 @@ export default function Room() {
                       }
                       placeholder="เช่น 6500"
                       required
+                    />
+                  </div>
+
+                  {/* Description */}
+
+                  <div className="field">
+                    <label>
+                      รายละเอียดห้อง
+                    </label>
+
+                    <textarea
+                      value={roomForm.description}
+                      onChange={(e) =>
+                        setRoomForm({
+                          ...roomForm,
+                          description: e.target.value,
+                        })
+                      }
+                      placeholder="เช่น ห้องมุม มีระเบียง วิวสวน"
+                      rows="3"
                     />
                   </div>
 

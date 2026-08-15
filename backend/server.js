@@ -506,6 +506,10 @@ app.post("/api/rooms", async (req, res) => {
 // แก้ไขห้อง
 // =================================
 
+// =================================
+// แก้ไขห้อง
+// =================================
+
 app.put("/api/rooms/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -517,34 +521,31 @@ app.put("/api/rooms/:id", async (req, res) => {
       size,
       monthlyRent,
       roomStatus,
+      tenantName,
+      description,
     } = req.body;
 
-    if (!roomNumber || !floor || !monthlyRent) {
-      return res.status(400).json({
-        success: false,
-        message: "กรุณากรอกข้อมูลห้องให้ครบ",
-      });
-    }
-
     await db.query(
-      `
-      UPDATE rooms
-      SET
-        room_number = ?,
-        floor = ?,
-        type = ?,
-        size_sqm = ?,
-        monthly_rent = ?,
-        status = ?
-      WHERE id = ?
-      `,
+      `UPDATE rooms
+       SET
+         room_number = ?,
+         floor = ?,
+         type = ?,
+         size_sqm = ?,
+         monthly_rent = ?,
+         status = ?,
+         tenant_name = ?,
+         description = ?
+       WHERE id = ?`,
       [
         roomNumber,
         floor,
-        type || "studio",
-        size || 0,
+        type,
+        size,
         monthlyRent,
-        roomStatus || "available",
+        roomStatus,
+        tenantName || null,
+        description || null,
         id,
       ]
     );
@@ -553,17 +554,16 @@ app.put("/api/rooms/:id", async (req, res) => {
       success: true,
       message: "แก้ไขข้อมูลห้องเรียบร้อย",
     });
+
   } catch (error) {
     console.error("Update Room Error:", error);
 
     res.status(500).json({
       success: false,
-      message: "ไม่สามารถแก้ไขห้องได้",
-      error: error.message,
+      message: "ไม่สามารถแก้ไขข้อมูลห้องได้",
     });
   }
 });
-
 // =================================
 // ทำสัญญาเช่า
 // =================================
@@ -825,6 +825,8 @@ app.get("/api/users/tenant/:id", async (req, res) => {
 // =================================
 
 app.post("/api/auth/register", async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const {
       firstName,
@@ -833,6 +835,7 @@ app.post("/api/auth/register", async (req, res) => {
       email,
       username,
       password,
+      roomNumber,
     } = req.body;
 
     // -----------------------------
@@ -845,7 +848,8 @@ app.post("/api/auth/register", async (req, res) => {
       !phone ||
       !email ||
       !username ||
-      !password
+      !password ||
+      !roomNumber
     ) {
       return res.status(400).json({
         success: false,
@@ -861,7 +865,7 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     // -----------------------------
-    // ตรวจสอบ username
+    // ตรวจสอบ Username
     // -----------------------------
 
     const [existingUsername] = await db.query(
@@ -882,7 +886,7 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     // -----------------------------
-    // ตรวจสอบ email
+    // ตรวจสอบ Email
     // -----------------------------
 
     const [existingEmail] = await db.query(
@@ -924,16 +928,63 @@ app.post("/api/auth/register", async (req, res) => {
     }
 
     // -----------------------------
+    // ค้นหาห้อง
+    // -----------------------------
+
+    const [rooms] = await db.query(
+      `
+      SELECT
+        id,
+        room_number,
+        monthly_rent,
+        status
+      FROM rooms
+      WHERE room_number = ?
+      LIMIT 1
+      `,
+      [roomNumber]
+    );
+
+    if (rooms.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: `ไม่พบห้อง ${roomNumber} ในระบบ`,
+      });
+    }
+
+    const room = rooms[0];
+
+    // -----------------------------
+    // ตรวจสอบห้องว่าง
+    // -----------------------------
+
+    if (room.status !== "available") {
+      return res.status(400).json({
+        success: false,
+        message: `ห้อง ${roomNumber} ไม่สามารถสมัครได้ เนื่องจากห้องไม่ว่าง`,
+      });
+    }
+
+    // -----------------------------
+    // เริ่ม Transaction
+    // -----------------------------
+
+    await connection.beginTransaction();
+
+    // -----------------------------
     // Hash Password
     // -----------------------------
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(
+      password,
+      10
+    );
 
     // -----------------------------
-    // เพิ่ม User
+    // สร้าง User
     // -----------------------------
 
-    const [result] = await db.query(
+    const [userResult] = await connection.query(
       `
       INSERT INTO users
       (
@@ -955,20 +1006,95 @@ app.post("/api/auth/register", async (req, res) => {
       ]
     );
 
+    const userId = userResult.insertId;
+
+    // -----------------------------
+    // สร้าง Contract
+    // -----------------------------
+
+    const startDate = new Date();
+
+    const endDate = new Date();
+    endDate.setFullYear(
+      endDate.getFullYear() + 1
+    );
+
+    const formatDate = (date) => {
+      return date.toISOString().split("T")[0];
+    };
+
+    await connection.query(
+      `
+      INSERT INTO contracts
+      (
+        room_id,
+        tenant_id,
+        start_date,
+        end_date,
+        monthly_rent,
+        deposit,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'active')
+      `,
+      [
+        room.id,
+        userId,
+        formatDate(startDate),
+        formatDate(endDate),
+        room.monthly_rent,
+        room.monthly_rent * 2,
+      ]
+    );
+
+    // -----------------------------
+    // เปลี่ยนสถานะห้อง
+    // -----------------------------
+
+    await connection.query(
+      `
+      UPDATE rooms
+      SET status = 'occupied'
+      WHERE id = ?
+      `,
+      [room.id]
+    );
+
+    // -----------------------------
+    // Commit
+    // -----------------------------
+
+    await connection.commit();
+
     res.status(201).json({
       success: true,
       message: "สมัครสมาชิกเรียบร้อย",
-      userId: result.insertId,
+      userId,
+      room: {
+        id: room.id,
+        roomNumber: room.room_number,
+      },
     });
 
   } catch (error) {
-    console.error("Register Error:", error);
+
+    await connection.rollback();
+
+    console.error(
+      "Register Error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
       message: "ไม่สามารถสมัครสมาชิกได้",
       error: error.message,
     });
+
+  } finally {
+
+    connection.release();
+
   }
 });
 
