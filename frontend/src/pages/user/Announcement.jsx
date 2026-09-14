@@ -1,39 +1,173 @@
-import React from 'react';
+import React, { useEffect, useState } from "react";
+
+const API_URL = "http://localhost:4000";
 
 export default function Announcement() {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+
+  const getToken = () => {
+    return localStorage.getItem("token")
+      || localStorage.getItem("auth_token");
+  };
+
+
+  const fetchAnnouncements = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const token = getToken();
+
+      const response = await fetch(
+        `${API_URL}/api/announcements`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message ||
+          "ไม่สามารถโหลดประกาศได้"
+        );
+      }
+
+      setAnnouncements(result.data || []);
+
+    } catch (err) {
+      console.error(
+        "Fetch announcements error:",
+        err
+      );
+
+      setError(
+        err.message ||
+        "ไม่สามารถโหลดประกาศได้"
+      );
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
+
+
+  const formatDate = (date) => {
+    if (!date) {
+      return "-";
+    }
+
+    return new Date(date).toLocaleDateString(
+      "th-TH",
+      {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }
+    );
+  };
+
+
   return (
-    <div className="page" data-p="res-announce">
+    <div
+      className="page"
+      data-p="res-announce"
+    >
+
       <div className="page-head">
-        <div className="eyebrow">ข่าวสาร</div>
-        <h2>ประกาศจากผู้ดูแล</h2>
-        <p>ติดตามประกาศและข่าวสารทั้งหมดจากนิติบุคคล/ผู้ดูแลอาคาร</p>
+
+        <div className="eyebrow">
+          ข่าวสาร
+        </div>
+
+        <h2>
+          ประกาศจากผู้ดูแล
+        </h2>
+
+        <p>
+          ติดตามประกาศและข่าวสารทั้งหมด
+          จากนิติบุคคล/ผู้ดูแลอาคาร
+        </p>
+
       </div>
+
+
       <div className="card card-pad">
-        <div className="announce-item">
-          <div className="tag-lbl">ประกาศทั่วไป</div>
-          <h4>งดใช้น้ำชั่วคราว 18 ก.ค. 2569</h4>
-          <p>ทางนิติฯ จะดำเนินการซ่อมท่อเมนช่วง 09:00–12:00 น. ขออภัยในความไม่สะดวก</p>
-          <div className="date">16 ก.ค. 2569</div>
-        </div>
-        <div className="announce-item">
-          <div className="tag-lbl">ค่าใช้จ่าย</div>
-          <h4>แจ้งรอบชำระค่าส่วนกลางใหม่</h4>
-          <p>เริ่มใช้อัตราใหม่ตั้งแต่รอบบิลเดือนสิงหาคมเป็นต้นไป ตามมติที่ประชุม</p>
-          <div className="date">12 ก.ค. 2569</div>
-        </div>
-        <div className="announce-item">
-          <div className="tag-lbl">กิจกรรม</div>
-          <h4>ทำความสะอาดพื้นที่ส่วนกลางประจำเดือน</h4>
-          <p>วันเสาร์ที่ 25 ก.ค. เวลา 08:00 น. บริเวณลานจอดรถและสระว่ายน้ำ</p>
-          <div className="date">8 ก.ค. 2569</div>
-        </div>
-        <div className="announce-item">
-          <div className="tag-lbl">ความปลอดภัย</div>
-          <h4>ปรับปรุงระบบกล้องวงจรปิด</h4>
-          <p>ติดตั้งกล้องเพิ่มเติมบริเวณทางเข้า-ออกและลิฟต์ทุกตัว</p>
-          <div className="date">1 ก.ค. 2569</div>
-        </div>
+
+        {loading && (
+          <div>
+            กำลังโหลดประกาศ...
+          </div>
+        )}
+
+
+        {!loading && error && (
+          <div>
+            {error}
+          </div>
+        )}
+
+
+        {!loading &&
+          !error &&
+          announcements.length === 0 && (
+
+            <div>
+              ขณะนี้ยังไม่มีประกาศ
+            </div>
+
+          )}
+
+
+        {!loading &&
+          !error &&
+          announcements.map(
+            (announcement) => (
+
+              <div
+                className="announce-item"
+                key={announcement.id}
+              >
+
+                <div className="tag-lbl">
+                  {announcement.category}
+                </div>
+
+
+                <h4>
+                  {announcement.title}
+                </h4>
+
+
+                <p>
+                  {announcement.content}
+                </p>
+
+
+                <div className="date">
+                  {formatDate(
+                    announcement.created_at
+                  )}
+                </div>
+
+              </div>
+
+            )
+          )}
+
       </div>
+
     </div>
   );
 }

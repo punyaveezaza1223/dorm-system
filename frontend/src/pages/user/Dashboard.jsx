@@ -16,6 +16,7 @@ export default function Dashboard() {
 
   const [payments, setPayments] = useState([]);
   const [complaints, setComplaints] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
 
   const [loading, setLoading] = useState(true);
 
@@ -68,6 +69,21 @@ export default function Dashboard() {
           await complaintResponse.json();
 
         // =================================
+        // ดึงข้อมูลประกาศล่าสุด
+        // =================================
+
+        const announcementResponse = await fetch(
+          'http://localhost:4000/api/announcements',
+          {
+            method: 'GET',
+            headers,
+          }
+        );
+
+        const announcementResult =
+          await announcementResponse.json();
+
+        // =================================
         // ตรวจสอบ Token
         // =================================
 
@@ -75,7 +91,9 @@ export default function Dashboard() {
           paymentResponse.status === 401 ||
           paymentResponse.status === 403 ||
           complaintResponse.status === 401 ||
-          complaintResponse.status === 403
+          complaintResponse.status === 403 ||
+          announcementResponse.status === 401 ||
+          announcementResponse.status === 403
         ) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
@@ -94,6 +112,12 @@ export default function Dashboard() {
 
         if (complaintResult.success) {
           setComplaints(complaintResult.data || []);
+        }
+
+        if (announcementResult.success) {
+          setAnnouncements(
+            announcementResult.data || []
+          );
         }
 
       } catch (error) {
@@ -579,31 +603,63 @@ export default function Dashboard() {
             ประกาศล่าสุด
           </h3>
 
-          <div
-            className="announce-item"
-            style={{
-              paddingTop: 0,
-            }}
-          >
+          {announcements.length > 0 ? (
 
-            <div className="tag-lbl">
-              ประกาศทั่วไป
+            <div
+              className="announce-item"
+              style={{
+                paddingTop: 0,
+              }}
+            >
+
+              <div className="tag-lbl">
+                {announcements[0].category}
+              </div>
+
+              <h4>
+                {announcements[0].title}
+              </h4>
+
+              <p>
+                {announcements[0].content}
+              </p>
+
+              <div className="date">
+                {formatDate(
+                  announcements[0].created_at
+                )}
+              </div>
+
             </div>
 
-            <h4>
-              ยังไม่มีประกาศ
-            </h4>
+          ) : (
 
-            <p>
-              ระบบประกาศยังไม่ได้เชื่อมต่อ
-              กับ Backend
-            </p>
+            <div
+              className="announce-item"
+              style={{
+                paddingTop: 0,
+              }}
+            >
 
-            <div className="date">
-              —
+              <div className="tag-lbl">
+                ประกาศทั่วไป
+              </div>
+
+              <h4>
+                ยังไม่มีประกาศ
+              </h4>
+
+              <p>
+                ขณะนี้ยังไม่มีประกาศจากผู้ดูแล
+              </p>
+
+              <div className="date">
+                —
+              </div>
+
             </div>
 
-          </div>
+          )}
 
           <button
             className="btn btn-ghost btn-sm"

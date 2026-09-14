@@ -1550,6 +1550,228 @@ app.post(
 );
 
 // =================================
+// Announcement API
+// =================================
+
+// ตรวจสอบว่าเป็น Admin
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "ไม่มีสิทธิ์จัดการประกาศ",
+    });
+  }
+
+  next();
+};
+
+
+// =================================
+// ดึงประกาศทั้งหมด
+// Admin + Tenant ใช้ได้
+// =================================
+
+app.get(
+  "/api/announcements",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const [announcements] = await db.query(`
+        SELECT
+          a.id,
+          a.title,
+          a.category,
+          a.content,
+          a.created_by,
+          a.created_at,
+          a.updated_at,
+          u.full_name AS created_by_name
+        FROM announcements a
+        LEFT JOIN users u
+          ON u.id = a.created_by
+        ORDER BY a.created_at DESC, a.id DESC
+      `);
+
+      res.json({
+        success: true,
+        data: announcements,
+      });
+
+    } catch (error) {
+      console.error("Get Announcements Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงข้อมูลประกาศได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// สร้างประกาศ
+// Admin เท่านั้น
+// =================================
+
+app.post(
+  "/api/announcements",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const {
+        title,
+        category,
+        content,
+      } = req.body;
+
+      if (!title || !content) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกหัวข้อและรายละเอียดประกาศ",
+        });
+      }
+
+      const allowedCategories = [
+        "ประกาศทั่วไป",
+        "ค่าใช้จ่าย",
+        "กิจกรรม",
+        "ความปลอดภัย",
+      ];
+
+      if (
+        category &&
+        !allowedCategories.includes(category)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "หมวดหมู่ประกาศไม่ถูกต้อง",
+        });
+      }
+
+      const [result] = await db.query(
+        `
+        INSERT INTO announcements
+        (
+          title,
+          category,
+          content,
+          created_by
+        )
+        VALUES (?, ?, ?, ?)
+        `,
+        [
+          title.trim(),
+          category || "ประกาศทั่วไป",
+          content.trim(),
+          req.user.id,
+        ]
+      );
+
+      const [rows] = await db.query(
+        `
+        SELECT
+          a.id,
+          a.title,
+          a.category,
+          a.content,
+          a.created_by,
+          a.created_at,
+          a.updated_at,
+          u.full_name AS created_by_name
+        FROM announcements a
+        LEFT JOIN users u
+          ON u.id = a.created_by
+        WHERE a.id = ?
+        LIMIT 1
+        `,
+        [result.insertId]
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "เผยแพร่ประกาศเรียบร้อยแล้ว",
+        data: rows[0],
+      });
+
+    } catch (error) {
+      console.error("Create Announcement Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถสร้างประกาศได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// ลบประกาศ
+// Admin เท่านั้น
+// =================================
+
+app.delete(
+  "/api/announcements/:id",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!/^\d+$/.test(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "ID ประกาศไม่ถูกต้อง",
+        });
+      }
+
+      const [existing] = await db.query(
+        `
+        SELECT id
+        FROM announcements
+        WHERE id = ?
+        LIMIT 1
+        `,
+        [id]
+      );
+
+      if (existing.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "ไม่พบประกาศนี้",
+        });
+      }
+
+      await db.query(
+        `
+        DELETE FROM announcements
+        WHERE id = ?
+        `,
+        [id]
+      );
+
+      res.json({
+        success: true,
+        message: "ลบประกาศเรียบร้อยแล้ว",
+      });
+
+    } catch (error) {
+      console.error("Delete Announcement Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถลบประกาศได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// =================================
 // Start Server
 // =================================
 
