@@ -1,679 +1,501 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { MessageCircle, Package, Wallet, Wrench } from 'lucide-react';
+
+const formatDate = (date) => {
+  if (!date) return '—';
+
+  const parsed = new Date(date);
+
+  return Number.isNaN(parsed.getTime())
+    ? date
+    : parsed.toLocaleDateString('th-TH', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+};
+
+const paymentStatus = (status) => {
+  if (status === 'paid') {
+    return {
+      label: 'ชำระแล้ว',
+      className: 'is-paid',
+    };
+  }
+
+  if (status === 'overdue') {
+    return {
+      label: 'ค้างชำระ',
+      className: 'is-overdue',
+    };
+  }
+
+  return {
+    label: 'รอตรวจสอบ',
+    className: 'is-due',
+  };
+};
+
+const repairStatus = (status) => {
+  if (status === 'completed') {
+    return {
+      label: 'เสร็จสิ้น',
+      className: 'is-paid',
+    };
+  }
+
+  if (status === 'in_progress') {
+    return {
+      label: 'กำลังซ่อม',
+      className: 'is-due',
+    };
+  }
+
+  if (status === 'cancelled') {
+    return {
+      label: 'ยกเลิก',
+      className: 'is-overdue',
+    };
+  }
+
+  return {
+    label: 'รอดำเนินการ',
+    className: 'is-due',
+  };
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
-  // =================================
-  // รับข้อมูลจาก User.jsx
-  // =================================
-
   const { tenant, room } = useOutletContext();
 
-  // =================================
-  // State
-  // =================================
-
   const [payments, setPayments] = useState([]);
-  const [complaints, setComplaints] = useState([]);
+  const [repairs, setRepairs] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
-
   const [loading, setLoading] = useState(true);
 
-  // =================================
-  // ดึงข้อมูล Dashboard
-  // =================================
-
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    const loadDashboard = async () => {
       try {
         const token = localStorage.getItem('token');
 
         if (!token) {
-          navigate('/');
-          return;
+          return navigate('/');
         }
 
         const headers = {
           Authorization: `Bearer ${token}`,
         };
 
-        // =================================
-        // ดึงข้อมูลการชำระเงิน
-        // =================================
-
-        const paymentResponse = await fetch(
-          'http://localhost:4000/api/tenant/payments',
-          {
-            method: 'GET',
+        const [
+          paymentResponse,
+          repairResponse,
+          announcementResponse,
+        ] = await Promise.all([
+          fetch('http://localhost:4000/api/tenant/payments', {
             headers,
-          }
-        );
+          }),
 
-        const paymentResult =
-          await paymentResponse.json();
-
-        // =================================
-        // ดึงข้อมูลแจ้งซ่อม / ร้องเรียน
-        // =================================
-
-        const complaintResponse = await fetch(
-          'http://localhost:4000/api/tenant/complaints',
-          {
-            method: 'GET',
+          fetch('http://localhost:4000/api/tenant/repairs', {
             headers,
-          }
-        );
+          }),
 
-        const complaintResult =
-          await complaintResponse.json();
-
-        // =================================
-        // ดึงข้อมูลประกาศล่าสุด
-        // =================================
-
-        const announcementResponse = await fetch(
-          'http://localhost:4000/api/announcements',
-          {
-            method: 'GET',
+          fetch('http://localhost:4000/api/announcements', {
             headers,
-          }
-        );
-
-        const announcementResult =
-          await announcementResponse.json();
-
-        // =================================
-        // ตรวจสอบ Token
-        // =================================
+          }),
+        ]);
 
         if (
-          paymentResponse.status === 401 ||
-          paymentResponse.status === 403 ||
-          complaintResponse.status === 401 ||
-          complaintResponse.status === 403 ||
-          announcementResponse.status === 401 ||
-          announcementResponse.status === 403
+          [
+            paymentResponse.status,
+            repairResponse.status,
+            announcementResponse.status,
+          ].some((status) => status === 401 || status === 403)
         ) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
 
-          navigate('/');
-          return;
+          return navigate('/');
         }
 
-        // =================================
-        // เก็บข้อมูล
-        // =================================
+        const [
+          paymentResult,
+          repairResult,
+          announcementResult,
+        ] = await Promise.all([
+          paymentResponse.json(),
+          repairResponse.json(),
+          announcementResponse.json(),
+        ]);
+
+        console.log('Dashboard payments:', paymentResult);
+        console.log('Dashboard repairs:', repairResult);
+        console.log('Dashboard announcements:', announcementResult);
 
         if (paymentResult.success) {
           setPayments(paymentResult.data || []);
         }
 
-        if (complaintResult.success) {
-          setComplaints(complaintResult.data || []);
+        if (repairResult.success) {
+          setRepairs(repairResult.data || []);
         }
 
         if (announcementResult.success) {
-          setAnnouncements(
-            announcementResult.data || []
-          );
+          setAnnouncements(announcementResult.data || []);
         }
-
       } catch (error) {
-        console.error(
-          'Dashboard Error:',
-          error
-        );
+        console.error('Dashboard Error:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDashboardData();
+    loadDashboard();
   }, [navigate]);
-
-  // =================================
-  // Loading
-  // =================================
 
   if (loading) {
     return (
-      <div className="page">
-        <div
-          style={{
-            padding: '40px',
-            textAlign: 'center',
-          }}
-        >
-          กำลังโหลดข้อมูล...
-        </div>
+      <div className="resident-dashboard resident-page-loading">
+        กำลังโหลดข้อมูล...
       </div>
     );
   }
 
-  // =================================
-  // Payment Data
-  // =================================
+  const latestPayment = payments[0] || null;
 
-  const latestPayment =
-    payments.length > 0
-      ? payments[0]
-      : null;
-
-  // =================================
-  // ค่าเช่าล่าสุด
-  // =================================
-
-  const rentAmount = latestPayment
+  const amount = latestPayment
     ? Number(latestPayment.amount || 0)
     : Number(room?.contract_rent || room?.room_rent || 0);
 
-  // =================================
-  // Payment Status
-  // =================================
+  const roomName = room
+    ? `ห้อง ${room.room_number} · ชั้น ${room.floor}`
+    : 'ยังไม่มีข้อมูลห้องพัก';
 
-  let paymentStatusText = 'ยังไม่มีรายการ';
+  const dueDate = latestPayment?.due_date || latestPayment?.dueDate;
 
-  let paymentStatusClass = '';
+  const activeRepairs = repairs.filter(
+    (item) =>
+      item.status === 'pending' ||
+      item.status === 'in_progress'
+  );
 
-  if (latestPayment) {
-    if (latestPayment.status === 'paid') {
-      paymentStatusText = 'ชำระแล้ว';
-      paymentStatusClass = 'b-green';
-    } else if (
-      latestPayment.status === 'pending'
-    ) {
-      paymentStatusText = 'รอตรวจสอบ';
-      paymentStatusClass = 'b-amber';
-    } else if (
-      latestPayment.status === 'overdue'
-    ) {
-      paymentStatusText = 'ค้างชำระ';
-      paymentStatusClass = 'b-red';
-    }
-  }
+  const latestRepair = repairs[0] || null;
 
-  // =================================
-  // จำนวนแจ้งซ่อมที่ยังไม่เสร็จ
-  // =================================
-
-  const activeComplaints =
-    complaints.filter(
-      (item) =>
-        item.status === 'open' ||
-        item.status === 'in_progress'
-    );
-
-  // =================================
-  // รายการแจ้งซ่อมล่าสุด
-  // =================================
-
-  const latestComplaint =
-    complaints.length > 0
-      ? complaints[0]
-      : null;
-
-  // =================================
-  // แปลง Status แจ้งซ่อม
-  // =================================
-
-  const getComplaintStatus = (status) => {
-    switch (status) {
-      case 'open':
-        return {
-          text: 'แจ้งซ่อม',
-          className: 'b-amber',
-        };
-
-      case 'in_progress':
-        return {
-          text: 'กำลังดำเนินการ',
-          className: 'b-amber',
-        };
-
-      case 'resolved':
-        return {
-          text: 'เสร็จสิ้น',
-          className: 'b-green',
-        };
-
-      default:
-        return {
-          text: status || 'ไม่ทราบสถานะ',
-          className: '',
-        };
-    }
-  };
-
-  // =================================
-  // วันที่
-  // =================================
-
-  const formatDate = (date) => {
-    if (!date) {
-      return '—';
-    }
-
-    const d = new Date(date);
-
-    if (Number.isNaN(d.getTime())) {
-      return date;
-    }
-
-    return d.toLocaleDateString('th-TH', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
-  // =================================
-  // Complaint Status
-  // =================================
-
-  const latestComplaintStatus =
-    latestComplaint
-      ? getComplaintStatus(
-          latestComplaint.status
-        )
-      : null;
-
-  // =================================
-  // Render
-  // =================================
+  const latestRepairStatus = repairStatus(
+    latestRepair?.status
+  );
 
   return (
-    <div
-      className="page"
-      data-p="res-dashboard"
-    >
+    <div className="resident-dashboard">
 
-      {/* ================================= */}
-      {/* Header */}
-      {/* ================================= */}
+      {/* ================= HERO ================= */}
 
-      <div className="page-head">
+      <section className="resident-hero">
+        <div>
+          <p className="resident-greeting">
+            สวัสดี
+            {tenant?.fullName
+              ? `คุณ ${tenant.fullName}`
+              : 'คุณผู้พักอาศัย'}
+          </p>
 
-        <div className="eyebrow">
-          สวัสดี, {tenant?.fullName || 'ลูกบ้าน'}
+          <h1>
+            จัดการเรื่องห้องพักได้ในที่เดียว
+          </h1>
+
+          <p className="resident-room">
+            {roomName}
+          </p>
         </div>
 
-        <h2>
-          ภาพรวมห้องพักของคุณ
-        </h2>
+        <div className="resident-bill-summary">
+          <span>
+            ยอดที่ต้องชำระเดือนนี้
+          </span>
 
-        <p>
-          ติดตามสถานะการแจ้งซ่อม
-          การชำระเงิน และข่าวสารล่าสุด
-          จากผู้ดูแลได้ในหน้าเดียว
-        </p>
+          <strong>
+            ฿{amount.toLocaleString()}
+          </strong>
 
-      </div>
+          <small>
+            {dueDate
+              ? `ครบกำหนด ${formatDate(dueDate)}`
+              : 'ตรวจสอบรายละเอียดบิลล่าสุด'}
+          </small>
 
-      {/* ================================= */}
-      {/* Statistics */}
-      {/* ================================= */}
+          <button
+            type="button"
+            onClick={() => navigate('/user/payment')}
+          >
+            ชำระเงินตอนนี้
+          </button>
+        </div>
+      </section>
 
-      <div
-        className="grid-4"
-        style={{
-          marginBottom: '22px',
-        }}
+      {/* ================= QUICK MENU ================= */}
+
+      <section
+        className="resident-quick-grid"
+        aria-label="ทำรายการด่วน"
       >
+        <button
+          type="button"
+          onClick={() => navigate('/user/payment')}
+        >
+          <span className="quick-icon">
+            <Wallet
+              aria-hidden="true"
+              size={20}
+              strokeWidth={2}
+            />
+          </span>
 
-        {/* ค่าเช่า */}
+          <b>ชำระค่าเช่า</b>
+          <small>ดูบิลและส่งหลักฐาน</small>
+        </button>
 
-        <div className="card stat">
+        <button
+          type="button"
+          onClick={() => navigate('/user/repair')}
+        >
+          <span className="quick-icon">
+            <Wrench
+              aria-hidden="true"
+              size={20}
+              strokeWidth={2}
+            />
+          </span>
 
-          <div className="label">
-            ค่าเช่าล่าสุด
-          </div>
+          <b>แจ้งซ่อม</b>
+          <small>แจ้งปัญหาภายในห้อง</small>
+        </button>
 
-          <div className="value">
-            ฿{rentAmount.toLocaleString()}
-          </div>
+        <button
+          type="button"
+          onClick={() => navigate('/user/complaint')}
+        >
+          <span className="quick-icon">
+            <MessageCircle
+              aria-hidden="true"
+              size={20}
+              strokeWidth={2}
+            />
+          </span>
 
-          <div
-            className={`sub badge ${paymentStatusClass}`}
-          >
-            {latestPayment
-              ? paymentStatusText
-              : 'ยังไม่มีรายการ'}
-          </div>
+          <b>ติดต่อผู้ดูแล</b>
+          <small>สอบถามหรือแจ้งเรื่อง</small>
+        </button>
 
-        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/user/parcel')}
+        >
+          <span className="quick-icon">
+            <Package
+              aria-hidden="true"
+              size={20}
+              strokeWidth={2}
+            />
+          </span>
 
-        {/* แจ้งซ่อม */}
+          <b>พัสดุของฉัน</b>
+          <small>ตรวจสอบพัสดุที่มาถึง</small>
+        </button>
+      </section>
 
-        <div className="card stat">
+      {/* ================= DASHBOARD COLUMNS ================= */}
 
-          <div className="label">
-            แจ้งซ่อมที่เปิดอยู่
-          </div>
+      <section className="resident-dashboard-columns">
 
-          <div className="value">
-            {activeComplaints.length}
-          </div>
+        {/* ================= LEFT ================= */}
 
-          <div className="sub">
-            {activeComplaints.length > 0
-              ? 'กำลังดำเนินการ'
-              : 'ไม่มีรายการค้าง'}
-          </div>
+        <div className="resident-panel">
 
-        </div>
+          {/* บิลล่าสุด */}
 
-        {/* พัสดุ */}
+          <div className="resident-panel-head">
+            <h2>บิลล่าสุด</h2>
 
-        <div className="card stat">
-
-          <div className="label">
-            พัสดุรอรับ
-          </div>
-
-          <div className="value">
-            —
-          </div>
-
-          <div className="sub">
-            ระบบพัสดุยังไม่เชื่อมต่อ
-          </div>
-
-        </div>
-
-        {/* ค่าน้ำไฟ */}
-
-        <div className="card stat">
-
-          <div className="label">
-            ค่าน้ำ-ไฟเดือนนี้
-          </div>
-
-          <div className="value">
-            —
-          </div>
-
-          <div className="sub">
-            ยังไม่มี API ค่าน้ำ-ไฟ
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* ================================= */}
-      {/* Two Columns */}
-      {/* ================================= */}
-
-      <div className="two-col">
-
-        {/* ================================= */}
-        {/* Latest Repair */}
-        {/* ================================= */}
-
-        <div className="card card-pad">
-
-          <div
-            className="row between"
-            style={{
-              marginBottom: '14px',
-            }}
-          >
-
-            <h3
-              style={{
-                fontSize: '15.5px',
-              }}
+            <button
+              type="button"
+              onClick={() => navigate('/user/payment')}
             >
-              สถานะงานแจ้งซ่อมล่าสุด
-            </h3>
+              ดูทั้งหมด
+            </button>
+          </div>
 
-            {latestComplaintStatus && (
-              <span
-                className={`badge ${latestComplaintStatus.className}`}
+          {payments.length ? (
+            payments.slice(0, 3).map((payment) => {
+              const status = paymentStatus(
+                payment.status
+              );
+
+              return (
+                <div
+                  className="resident-bill-row"
+                  key={payment.id}
+                >
+                  <div>
+                    <b>
+                      {payment.month ||
+                        formatDate(
+                          payment.created_at ||
+                          payment.createdAt
+                        )}
+                    </b>
+
+                    <small>
+                      ค่าเช่าและค่าสาธารณูปโภค
+                    </small>
+                  </div>
+
+                  <div>
+                    <strong>
+                      ฿
+                      {Number(
+                        payment.amount || 0
+                      ).toLocaleString()}
+                    </strong>
+
+                    <span
+                      className={`resident-status ${status.className}`}
+                    >
+                      {status.label}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="resident-empty">
+              ยังไม่มีรายการบิล
+            </div>
+          )}
+
+          {/* ================= แจ้งซ่อม ================= */}
+
+          <div className="resident-subsection">
+
+            <div className="resident-panel-head">
+
+              <div>
+                <h2>สถานะแจ้งซ่อม</h2>
+
+                <small>
+                  {activeRepairs.length
+                    ? `มี ${activeRepairs.length} รายการที่กำลังติดตาม`
+                    : 'ไม่มีรายการค้าง'}
+                </small>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate('/user/repair')}
               >
-                {latestComplaintStatus.text}
-              </span>
+                ดูทั้งหมด
+              </button>
+
+            </div>
+
+            {latestRepair ? (
+
+              <div className="resident-repair-row">
+
+                <span className="resident-repair-icon">
+                  <Wrench
+                    size={18}
+                    strokeWidth={2}
+                  />
+                </span>
+
+                <div>
+                  <b>
+                    {latestRepair.category ||
+                      `แจ้งซ่อม #${latestRepair.id}`}
+                  </b>
+
+                  <small>
+                    {latestRepair.description}
+                  </small>
+
+                  <small>
+                    แจ้งเมื่อ{' '}
+                    {formatDate(
+                      latestRepair.created_at ||
+                      latestRepair.createdAt
+                    )}
+                  </small>
+                </div>
+
+                <span
+                  className={`resident-status ${latestRepairStatus.className}`}
+                >
+                  {latestRepairStatus.label}
+                </span>
+
+              </div>
+
+            ) : (
+
+              <div className="resident-empty">
+                ยังไม่มีรายการแจ้งซ่อม
+              </div>
+
             )}
 
           </div>
+        </div>
 
-          {latestComplaint ? (
+        {/* ================= RIGHT ================= */}
 
-            <>
-              <p
-                style={{
-                  fontSize: '13.5px',
-                  color: 'var(--text-dim)',
-                  margin: '0 0 16px',
-                }}
+        <div className="resident-panel">
+
+          <div className="resident-panel-head">
+            <h2>ประกาศจากหอพัก</h2>
+
+            <button
+              type="button"
+              onClick={() =>
+                navigate('/user/announcement')
+              }
+            >
+              ดูทั้งหมด
+            </button>
+          </div>
+
+          {announcements.length ? (
+
+            announcements.slice(0, 3).map((item) => (
+
+              <article
+                className="resident-notice-row"
+                key={item.id}
               >
+                <i />
 
-                #{latestComplaint.id}
+                <div>
+                  <b>{item.title}</b>
 
-                {' · '}
-
-                {latestComplaint.title}
-
-                {' · แจ้งเมื่อ '}
-
-                {formatDate(
-                  latestComplaint.created_at
-                )}
-
-              </p>
-
-              {/* ================================= */}
-              {/* Steps */}
-              {/* ================================= */}
-
-              <div className="steps">
-
-                <div
-                  className={`step ${
-                    latestComplaint.status === 'open' ||
-                    latestComplaint.status === 'in_progress' ||
-                    latestComplaint.status === 'resolved'
-                      ? 'done'
-                      : ''
-                  }`}
-                >
-                  <div className="circ">
-                    {latestComplaint.status !== 'open'
-                      ? '✓'
-                      : '1'}
-                  </div>
-
-                  <div className="lbl">
-                    แจ้งซ่อม
-                  </div>
+                  <small>
+                    {formatDate(item.created_at)}
+                  </small>
                 </div>
+              </article>
 
-                <div
-                  className={`step ${
-                    latestComplaint.status ===
-                      'in_progress' ||
-                    latestComplaint.status ===
-                      'resolved'
-                      ? 'done'
-                      : ''
-                  }`}
-                >
-                  <div className="circ">
-                    {latestComplaint.status ===
-                      'in_progress' ||
-                    latestComplaint.status ===
-                      'resolved'
-                      ? '✓'
-                      : '2'}
-                  </div>
-
-                  <div className="lbl">
-                    รับเรื่อง
-                  </div>
-                </div>
-
-                <div
-                  className={`step ${
-                    latestComplaint.status ===
-                    'in_progress'
-                      ? 'now'
-                      : latestComplaint.status ===
-                        'resolved'
-                      ? 'done'
-                      : ''
-                  }`}
-                >
-                  <div className="circ">
-                    {latestComplaint.status ===
-                    'resolved'
-                      ? '✓'
-                      : '3'}
-                  </div>
-
-                  <div className="lbl">
-                    กำลังซ่อม
-                  </div>
-                </div>
-
-                <div
-                  className={`step ${
-                    latestComplaint.status ===
-                    'resolved'
-                      ? 'done'
-                      : ''
-                  }`}
-                >
-                  <div className="circ">
-                    {latestComplaint.status ===
-                    'resolved'
-                      ? '✓'
-                      : '4'}
-                  </div>
-
-                  <div className="lbl">
-                    เสร็จสิ้น
-                  </div>
-                </div>
-
-              </div>
-
-            </>
+            ))
 
           ) : (
 
-            <p
-              style={{
-                fontSize: '13.5px',
-                color: 'var(--text-dim)',
-              }}
-            >
-              ยังไม่มีรายการแจ้งซ่อม
-            </p>
-
-          )}
-
-          <button
-            className="btn btn-ghost btn-sm"
-            style={{
-              marginTop: '10px',
-            }}
-            onClick={() =>
-              navigate('/user/repair')
-            }
-          >
-            ดูรายละเอียดทั้งหมด
-          </button>
-
-        </div>
-
-        {/* ================================= */}
-        {/* Announcement */}
-        {/* ================================= */}
-
-        <div className="card card-pad">
-
-          <h3
-            style={{
-              fontSize: '15.5px',
-              marginBottom: '14px',
-            }}
-          >
-            ประกาศล่าสุด
-          </h3>
-
-          {announcements.length > 0 ? (
-
-            <div
-              className="announce-item"
-              style={{
-                paddingTop: 0,
-              }}
-            >
-
-              <div className="tag-lbl">
-                {announcements[0].category}
-              </div>
-
-              <h4>
-                {announcements[0].title}
-              </h4>
-
-              <p>
-                {announcements[0].content}
-              </p>
-
-              <div className="date">
-                {formatDate(
-                  announcements[0].created_at
-                )}
-              </div>
-
-            </div>
-
-          ) : (
-
-            <div
-              className="announce-item"
-              style={{
-                paddingTop: 0,
-              }}
-            >
-
-              <div className="tag-lbl">
-                ประกาศทั่วไป
-              </div>
-
-              <h4>
-                ยังไม่มีประกาศ
-              </h4>
-
-              <p>
-                ขณะนี้ยังไม่มีประกาศจากผู้ดูแล
-              </p>
-
-              <div className="date">
-                —
-              </div>
-
+            <div className="resident-empty">
+              ยังไม่มีประกาศในขณะนี้
             </div>
 
           )}
 
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() =>
-              navigate('/user/announcement')
-            }
-          >
-            ดูประกาศทั้งหมด
-          </button>
-
         </div>
 
-      </div>
-
+      </section>
     </div>
   );
 }
+

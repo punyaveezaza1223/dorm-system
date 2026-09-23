@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import CustomDropdown from '../../components/CustomDropdown';
 
 export default function Utility() {
   const [toastMsg, setToastMsg] = useState('');
@@ -25,18 +26,18 @@ export default function Utility() {
           <div className="row gap-12 wrap">
             <div className="field" style={{ marginBottom: 0 }}>
               <label>ประจำเดือน</label>
-              <select defaultValue="2026-08">
-                <option value="2026-08">สิงหาคม 2569</option>
-                <option value="2026-07">กรกฎาคม 2569</option>
-                <option value="2026-06">มิถุนายน 2569</option>
-              </select>
+              <CustomDropdown defaultValue="2026-08" aria-label="ประจำเดือน" options={[
+                { value: '2026-08', label: 'สิงหาคม 2569' },
+                { value: '2026-07', label: 'กรกฎาคม 2569' },
+                { value: '2026-06', label: 'มิถุนายน 2569' },
+              ]} />
             </div>
             <div className="field" style={{ marginBottom: 0 }}>
               <label>อาคาร</label>
-              <select>
-                <option value="A">ตึก A</option>
-                <option value="B">ตึก B</option>
-              </select>
+              <CustomDropdown aria-label="อาคาร" options={[
+                { value: 'A', label: 'ตึก A' },
+                { value: 'B', label: 'ตึก B' },
+              ]} />
             </div>
           </div>
           <button

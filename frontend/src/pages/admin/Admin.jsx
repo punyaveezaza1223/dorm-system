@@ -25,7 +25,7 @@ export default function Admin() {
               end
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">⌂</span>ภาพรวม
+              <span className="ic"></span>ภาพรวม
             </NavLink>
           </li>
           <li>
@@ -33,7 +33,7 @@ export default function Admin() {
               to="/admin/room"
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">🏷</span>จัดการข้อมูลห้องพัก
+              <span className="ic"></span>จัดการข้อมูลห้องพัก
             </NavLink>
           </li>
           <li>
@@ -41,7 +41,7 @@ export default function Admin() {
               to="/admin/payment"
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">฿</span>ตรวจสอบการชำระเงิน
+              <span className="ic"></span>ตรวจสอบการชำระเงิน
             </NavLink>
           </li>
           <li>
@@ -49,7 +49,7 @@ export default function Admin() {
               to="/admin/repair"
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">🔧</span>จัดการงานแจ้งซ่อม
+              <span className="ic"></span>จัดการงานแจ้งซ่อม
             </NavLink>
           </li>
           <li>
@@ -57,7 +57,7 @@ export default function Admin() {
               to="/admin/utility"
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">💧</span>ค่าน้ำ ค่าไฟ ส่วนกลาง
+              <span className="ic"></span>ค่าน้ำ ค่าไฟ ส่วนกลาง
             </NavLink>
           </li>
           <li>
@@ -65,7 +65,7 @@ export default function Admin() {
               to="/admin/announcement"
               className={({ isActive }) => (isActive ? 'active' : '')}
             >
-              <span className="ic">📣</span>ประกาศข่าวสาร
+              <span className="ic"></span>ประกาศข่าวสาร
             </NavLink>
           </li>
         </ul>

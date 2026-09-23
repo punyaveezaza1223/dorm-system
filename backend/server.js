@@ -1395,10 +1395,12 @@ app.get(
   }
 );
 
+
 // =================================
 // Tenant Complaints API
 // =================================
 
+// ดึงรายการร้องเรียนของลูกบ้าน
 app.get(
   "/api/tenant/complaints",
   authenticateToken,
@@ -1415,11 +1417,11 @@ app.get(
           cp.type,
           cp.title,
           cp.description,
+          cp.is_anonymous,
           cp.status,
-          cp.image_url,
+          cp.admin_note,
           cp.created_at,
           cp.updated_at,
-
           r.room_number
 
         FROM complaints cp
@@ -1429,9 +1431,14 @@ app.get(
 
         WHERE cp.tenant_id = ?
 
-        ORDER BY cp.created_at DESC
+        ORDER BY cp.created_at DESC, cp.id DESC
         `,
         [userId]
+      );
+
+      console.log(
+        "Complaint history:",
+        complaints
       );
 
       res.json({
@@ -1440,16 +1447,22 @@ app.get(
       });
 
     } catch (error) {
-      console.error("Tenant Complaints Error:", error);
+
+      console.error(
+        "Tenant Complaints Error:",
+        error
+      );
 
       res.status(500).json({
         success: false,
-        message: "ไม่สามารถดึงข้อมูลการแจ้งซ่อมได้",
+        message:
+          "ไม่สามารถดึงข้อมูลเรื่องร้องเรียนได้",
         error: error.message,
       });
     }
   }
 );
+
 
 // =================================
 // Create Tenant Complaint
@@ -1466,9 +1479,201 @@ app.post(
         type,
         title,
         description,
+        isAnonymous,
       } = req.body;
 
+
+      // =============================
+      // ตรวจสอบข้อมูล
+      // =============================
+
       if (!type || !title || !description) {
+        return res.status(400).json({
+          success: false,
+          message: "กรุณากรอกข้อมูลให้ครบ",
+        });
+      }
+
+
+      // =============================
+      // หาห้องของลูกบ้าน
+      // =============================
+
+      const [rooms] = await db.query(
+        `
+        SELECT
+          r.id AS room_id
+        FROM contracts c
+
+        INNER JOIN rooms r
+          ON r.id = c.room_id
+
+        WHERE c.tenant_id = ?
+          AND c.status = 'active'
+
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+
+      if (rooms.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "คุณยังไม่มีห้องพัก",
+        });
+      }
+
+
+      const roomId = rooms[0].room_id;
+
+
+      // =============================
+      // บันทึก Complaint
+      // =============================
+
+      const [result] = await db.query(
+        `
+        INSERT INTO complaints
+        (
+          tenant_id,
+          room_id,
+          title,
+          type,
+          description,
+          is_anonymous,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'open')
+        `,
+        [
+          userId,
+          roomId,
+          title.trim(),
+          type,
+          description.trim(),
+          isAnonymous ? 1 : 0,
+        ]
+      );
+
+
+      // =============================
+      // ส่งผลกลับไป Frontend
+      // =============================
+
+      res.status(201).json({
+        success: true,
+        message: "ส่งเรื่องร้องเรียนเรียบร้อยแล้ว",
+        complaintId: result.insertId,
+      });
+
+    } catch (error) {
+
+      console.error(
+        "Create Complaint Error:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถบันทึกเรื่องร้องเรียนได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// Tenant Repairs API
+// =================================
+
+// ดึงประวัติการแจ้งซ่อมของลูกบ้าน
+app.get(
+  "/api/tenant/repairs",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      console.log("Repair history userId:", userId);
+
+      const [repairs] = await db.query(
+        `
+        SELECT
+          rp.id,
+          rp.tenant_id,
+          rp.room_id,
+          rp.category,
+          rp.description,
+          rp.urgency,
+          rp.image_url,
+          rp.status,
+          rp.admin_note,
+          rp.created_at,
+          rp.updated_at,
+          r.room_number
+
+        FROM repair rp
+
+        LEFT JOIN rooms r
+          ON r.id = rp.room_id
+
+        WHERE rp.tenant_id = ?
+
+        ORDER BY
+          rp.created_at DESC,
+          rp.id DESC
+        `,
+        [userId]
+      );
+
+      console.log("Repair history:", repairs);
+
+      res.json({
+        success: true,
+        data: repairs,
+      });
+
+    } catch (error) {
+      console.error(
+        "Tenant Repairs Error:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงประวัติการแจ้งซ่อมได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// Create Tenant Repair
+// =================================
+
+// สร้างรายการแจ้งซ่อมใหม่
+app.post(
+  "/api/tenant/repairs",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      const {
+        category,
+        description,
+        urgency,
+      } = req.body;
+
+      // -----------------------------
+      // ตรวจสอบข้อมูล
+      // -----------------------------
+
+      if (!category || !description) {
         return res.status(400).json({
           success: false,
           message: "กรุณากรอกข้อมูลให้ครบ",
@@ -1506,48 +1711,173 @@ app.post(
       const roomId = rooms[0].room_id;
 
       // -----------------------------
-      // เพิ่มรายการแจ้งซ่อม
+      // บันทึกแจ้งซ่อม
       // -----------------------------
 
       const [result] = await db.query(
         `
-        INSERT INTO complaints
+        INSERT INTO repair
         (
-          room_id,
           tenant_id,
-          type,
-          title,
+          room_id,
+          category,
           description,
+          urgency,
           status
         )
-        VALUES (?, ?, ?, ?, ?, 'open')
+        VALUES (?, ?, ?, ?, ?, 'pending')
         `,
         [
-          roomId,
           userId,
-          type,
-          title,
-          description,
+          roomId,
+          category.trim(),
+          description.trim(),
+          urgency || "ทั่วไป",
         ]
       );
 
+      console.log("Created repair:", {
+        repairId: result.insertId,
+        tenantId: userId,
+        roomId,
+        category,
+      });
+
+      // -----------------------------
+      // ส่งผลกลับ Frontend
+      // -----------------------------
+
       res.status(201).json({
         success: true,
-        message: "แจ้งซ่อมเรียบร้อย",
-        complaintId: result.insertId,
+        message: "ส่งเรื่องแจ้งซ่อมเรียบร้อยแล้ว",
+        repairId: result.insertId,
       });
 
     } catch (error) {
-      console.error("Create Complaint Error:", error);
+      console.error(
+        "Create Repair Error:",
+        error
+      );
 
       res.status(500).json({
         success: false,
-        message: "ไม่สามารถแจ้งซ่อมได้",
+        message: "ไม่สามารถบันทึกเรื่องแจ้งซ่อมได้",
         error: error.message,
       });
     }
   }
 );
+
+// =================================
+// Admin Repairs API
+// =================================
+
+// ดึงรายการแจ้งซ่อมทั้งหมด
+app.get(
+  "/api/admin/repairs",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const [repairs] = await db.query(`
+        SELECT
+          rp.id,
+          rp.tenant_id,
+          rp.room_id,
+          rp.category,
+          rp.description,
+          rp.urgency,
+          rp.image_url,
+          rp.status,
+          rp.admin_note,
+          rp.created_at,
+          rp.updated_at,
+          r.room_number,
+          u.username
+        FROM repair rp
+        LEFT JOIN rooms r
+          ON r.id = rp.room_id
+        LEFT JOIN users u
+          ON u.id = rp.tenant_id
+        ORDER BY rp.created_at DESC, rp.id DESC
+      `);
+
+      res.json({
+        success: true,
+        data: repairs,
+      });
+    } catch (error) {
+      console.error("Admin Repairs Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถดึงรายการแจ้งซ่อมได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// Admin Update Repair Status
+// =================================
+
+app.patch(
+  "/api/admin/repairs/:id/status",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const repairId = req.params.id;
+      const { status } = req.body;
+
+      const allowedStatus = [
+        "pending",
+        "in_progress",
+        "completed",
+        "cancelled",
+      ];
+
+      if (!allowedStatus.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "สถานะไม่ถูกต้อง",
+        });
+      }
+
+      const [result] = await db.query(
+        `
+        UPDATE repair
+        SET status = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        `,
+        [status, repairId]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "ไม่พบรายการแจ้งซ่อม",
+        });
+      }
+
+      res.json({
+        success: true,
+        message: "อัปเดตสถานะเรียบร้อยแล้ว",
+      });
+
+    } catch (error) {
+      console.error("Update Repair Status Error:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถอัปเดตสถานะได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
 
 // =================================
 // Announcement API

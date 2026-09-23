@@ -33,6 +33,9 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
+  // ข้อความสำเร็จแสดงเป็นสีเขียว ข้อความอื่นแสดงเป็นสีแดง
+  const isSuccessMessage = message.startsWith('สมัครสมาชิกสำเร็จ');
+
   // =================================
   // Login Input
   // =================================
@@ -69,34 +72,24 @@ function Login() {
     setMessage('');
 
     if (!loginData.identifier || !loginData.password) {
-      setMessage(
-        'กรุณากรอกเบอร์โทรศัพท์ / อีเมล / Username และรหัสผ่าน'
-      );
+      setMessage('กรุณากรอกเบอร์โทรศัพท์ / อีเมล / Username และรหัสผ่าน');
       return;
     }
 
     try {
       setLoading(true);
 
-      const response = await fetch(
-        'http://localhost:4000/api/auth/login',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            // สำคัญ:
-            // Backend ใช้ชื่อ login ไม่ใช่ identifier
-            login: loginData.identifier,
-
-            password: loginData.password,
-
-            // resident ใน Frontend = tenant ใน Database
-            role: role === 'resident' ? 'tenant' : 'admin',
-          }),
-        }
-      );
+      const response = await fetch('http://localhost:4000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          login: loginData.identifier,
+          password: loginData.password,
+          role: role === 'resident' ? 'tenant' : 'admin',
+        }),
+      });
 
       const result = await response.json();
 
@@ -108,40 +101,17 @@ function Login() {
         return;
       }
 
-      // =================================
-      // เก็บ Token
-      // =================================
-
-      localStorage.setItem(
-        'token',
-        result.token
-      );
-
-      // =================================
-      // เก็บข้อมูล User
-      // =================================
-
-      localStorage.setItem(
-        'user',
-        JSON.stringify(result.user)
-      );
-
-      // =================================
-      // เข้า Dashboard ตาม Role
-      // =================================
+      localStorage.setItem('token', result.token);
+      localStorage.setItem('user', JSON.stringify(result.user));
 
       if (result.user.role === 'admin') {
         navigate('/admin');
       } else {
         navigate('/user');
       }
-
     } catch (error) {
       console.error('Login Error:', error);
-
-      setMessage(
-        'ไม่สามารถเชื่อมต่อ Backend ได้ กรุณาตรวจสอบ Server'
-      );
+      setMessage('ไม่สามารถเชื่อมต่อ Backend ได้ กรุณาตรวจสอบ Server');
     } finally {
       setLoading(false);
     }
@@ -170,9 +140,7 @@ function Login() {
     }
 
     if (registerData.password.length < 6) {
-      setMessage(
-        'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร'
-      );
+      setMessage('รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร');
       return;
     }
 
@@ -186,15 +154,10 @@ function Login() {
           headers: {
             'Content-Type': 'application/json',
           },
-
           body: JSON.stringify({
             firstName: registerData.firstName,
             lastName: registerData.lastName,
-
-            // ตอนนี้ Backend Register API
-            // ยังไม่ได้ใช้ roomNumber
             roomNumber: registerData.roomNumber,
-
             phone: registerData.phone,
             email: registerData.email,
             username: registerData.username,
@@ -206,22 +169,12 @@ function Login() {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        setMessage(
-          result.message ||
-            'สมัครสมาชิกไม่สำเร็จ'
-        );
+        setMessage(result.message || 'สมัครสมาชิกไม่สำเร็จ');
         return;
       }
 
-      // =================================
-      // สมัครสำเร็จ
-      // =================================
+      alert('สมัครสมาชิกเรียบร้อยแล้ว กรุณาเข้าสู่ระบบ');
 
-      alert(
-        'สมัครสมาชิกเรียบร้อยแล้ว กรุณาเข้าสู่ระบบ'
-      );
-
-      // ล้างข้อมูล
       setRegisterData({
         firstName: '',
         lastName: '',
@@ -232,29 +185,16 @@ function Login() {
         password: '',
       });
 
-      // กลับ Login
       setAuthTab('login');
-
-      // เอา Username ที่สมัคร
-      // มาใส่ช่อง Login
       setLoginData({
         identifier: registerData.username,
         password: '',
       });
 
-      setMessage(
-        'สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ'
-      );
-
+      setMessage('สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ');
     } catch (error) {
-      console.error(
-        'Register Error:',
-        error
-      );
-
-      setMessage(
-        'ไม่สามารถเชื่อมต่อ Backend ได้ กรุณาตรวจสอบ Server'
-      );
+      console.error('Register Error:', error);
+      setMessage('ไม่สามารถเชื่อมต่อ Backend ได้ กรุณาตรวจสอบ Server');
     } finally {
       setLoading(false);
     }
@@ -262,120 +202,67 @@ function Login() {
 
   return (
     <div id="screen-login">
-
-      <div class="login-wrap">
-
+      <div className="login-wrap">
         {/* ================================= */}
         {/* LEFT SIDE */}
         {/* ================================= */}
 
-        <div class="login-side">
+        <div className="login-side">
+          <div className="brandmark">
+            <div className="fob"></div>
 
-          <div class="brandmark">
-
-            <div class="fob"></div>
-
-            <div
-              class="name"
-              style={{ color: '#fff' }}
-            >
+            <div className="name" style={{ color: '#fff' }}>
               NestKey
-
-              <small
-                style={{
-                  color:
-                    'rgba(255,255,255,.55)',
-                }}
-              >
+              <small style={{ color: 'rgba(255,255,255,.85)' }}>
                 ระบบจัดการหอพักและคอนโด
               </small>
             </div>
-
           </div>
 
           <h1>
-            ดูแลบ้านของลูกบ้าน<br />
+            ดูแลบ้านของลูกบ้าน
+            <br />
             จัดการหอพักของคุณ ในที่เดียว
           </h1>
 
           <p>
-            แจ้งซ่อม ร้องเรียน ชำระค่าเช่า
-            ติดตามพัสดุ และรับข่าวสาร —
-            ครบในระบบเดียวสำหรับลูกบ้านและผู้ดูแล
+            — แจ้งซ่อม ร้องเรียน ชำระค่าเช่า ติดตามพัสดุ และรับข่าวสารทั้งหมด 
+            — ครบในระบบเดียวสำหรับลูกบ้านและผู้ดูแล
           </p>
 
-          <div class="keytag-stack">
+          <ul className="feature-chips">
+            <li>แจ้งซ่อม</li>
+            <li>ร้องเรียน</li>
+            <li>ชำระค่าเช่า</li>
+            <li>ติดตามพัสดุ</li>
+            <li>ข่าวสาร</li>
+          </ul>
 
-            <div class="keytag rot1">
-
-              <span
-                class="dot"
-                style={{
-                  background:
-                    'var(--sage)',
-                }}
-              ></span>
-
-              <span class="num">
-                A12
-              </span>
-
-            </div>
-
-            <div class="keytag rot2">
-
-              <span
-                class="dot"
-                style={{
-                  background:
-                    'var(--brass)',
-                }}
-              ></span>
-
-              <span class="num">
-                B04
-              </span>
-
-            </div>
-
-            <div class="keytag rot3">
-
-              <span
-                class="dot"
-                style={{
-                  background:
-                    'var(--rust)',
-                }}
-              ></span>
-
-              <span class="num">
-                C09
-              </span>
-
-            </div>
-
-          </div>
-
-          <div class="pegrow"></div>
-
+          <div className="pegrow"></div>
         </div>
 
         {/* ================================= */}
         {/* RIGHT SIDE */}
         {/* ================================= */}
 
-        <div class="login-form">
+        <div className="login-form">
+          <div className="form-head">
+            <h2 className="form-title">
+              {authTab === 'login' ? 'ยินดีต้อนรับกลับมา' : 'สร้างบัญชีลูกบ้าน'}
+            </h2>
+            <p className="form-sub">
+              {authTab === 'login'
+                ? 'เข้าสู่ระบบเพื่อจัดการห้องพักของคุณ'
+                : 'กรอกข้อมูลด้านล่างเพื่อเริ่มใช้งาน'}
+            </p>
+          </div>
 
           {/* Login / Register Tab */}
 
-          <div class="segment">
-
+          <div className="segment">
             <button
-              class={
-                authTab === 'login'
-                  ? 'active'
-                  : ''
-              }
+              type="button"
+              className={authTab === 'login' ? 'active' : ''}
               onClick={() => {
                 setAuthTab('login');
                 setMessage('');
@@ -385,11 +272,8 @@ function Login() {
             </button>
 
             <button
-              class={
-                authTab === 'register'
-                  ? 'active'
-                  : ''
-              }
+              type="button"
+              className={authTab === 'register' ? 'active' : ''}
               onClick={() => {
                 setAuthTab('register');
                 setMessage('');
@@ -397,7 +281,6 @@ function Login() {
             >
               สมัครสมาชิก
             </button>
-
           </div>
 
           {/* ================================= */}
@@ -406,15 +289,8 @@ function Login() {
 
           {message && (
             <div
-              style={{
-                marginTop: '15px',
-                marginBottom: '15px',
-                padding: '10px 12px',
-                borderRadius: '8px',
-                background: '#f5f1e8',
-                color: '#5c5143',
-                fontSize: '14px',
-              }}
+              className={`form-message ${isSuccessMessage ? 'ok' : 'error'}`}
+              role="alert"
             >
               {message}
             </div>
@@ -425,116 +301,70 @@ function Login() {
           {/* ================================= */}
 
           {authTab === 'login' && (
+            <form id="pane-login" onSubmit={handleLogin}>
+              <div className="field">
+                <label>เข้าสู่ระบบในฐานะ</label>
 
-            <form
-              id="pane-login"
-              onSubmit={handleLogin}
-            >
-
-              <div class="field">
-
-                <label>
-                  เข้าสู่ระบบในฐานะ
-                </label>
-
-                <div
-                  class="segment"
-                  style={{
-                    background: '#fff',
-                    border:
-                      '1.5px solid var(--line)',
-                  }}
-                >
-
+                <div className="segment segment-role">
                   <button
                     type="button"
-                    class={
-                      role === 'resident'
-                        ? 'active'
-                        : ''
-                    }
-                    onClick={() =>
-                      setRole('resident')
-                    }
+                    className={role === 'resident' ? 'active' : ''}
+                    onClick={() => setRole('resident')}
                   >
                     ลูกบ้าน
                   </button>
 
                   <button
                     type="button"
-                    class={
-                      role === 'admin'
-                        ? 'active'
-                        : ''
-                    }
-                    onClick={() =>
-                      setRole('admin')
-                    }
+                    className={role === 'admin' ? 'active' : ''}
+                    onClick={() => setRole('admin')}
                   >
                     ผู้ดูแล (Admin)
                   </button>
-
                 </div>
-
               </div>
 
-              <div class="field">
-
-                <label>
+              <div className="field">
+                <label htmlFor="login-identifier">
                   เบอร์โทรศัพท์ / อีเมล / Username
                 </label>
 
                 <input
+                  id="login-identifier"
                   type="text"
                   name="identifier"
-                  value={
-                    loginData.identifier
-                  }
-                  onChange={
-                    handleLoginChange
-                  }
+                  autoComplete="username"
+                  value={loginData.identifier}
+                  onChange={handleLoginChange}
                   placeholder="เบอร์โทร / อีเมล / Username"
                 />
-
               </div>
 
-              <div class="field">
-
-                <label>
-                  รหัสผ่าน
-                </label>
+              <div className="field">
+                <label htmlFor="login-password">รหัสผ่าน</label>
 
                 <input
+                  id="login-password"
                   type="password"
                   name="password"
-                  value={
-                    loginData.password
-                  }
-                  onChange={
-                    handleLoginChange
-                  }
+                  autoComplete="current-password"
+                  value={loginData.password}
+                  onChange={handleLoginChange}
                   placeholder="••••••••"
                 />
-
               </div>
 
               <button
                 type="submit"
-                class="btn btn-primary btn-block"
+                className="btn btn-primary btn-block"
                 disabled={loading}
               >
-                {loading
-                  ? 'กำลังเข้าสู่ระบบ...'
-                  : 'เข้าสู่ระบบ'}
+                {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
               </button>
 
-              <div class="switch-line">
-                ลืมรหัสผ่าน?{' '}
-                <b>
-                  กู้คืนบัญชี
-                </b>
+              <div className="switch-line">
+                ลืมรหัสผ่าน? <b>กู้คืนบัญชี</b>
               </div>
-
             </form>
           )}
 
@@ -543,204 +373,135 @@ function Login() {
           {/* ================================= */}
 
           {authTab === 'register' && (
-
-            <form
-              id="pane-register"
-              onSubmit={handleRegister}
-            >
-
+            <form id="pane-register" onSubmit={handleRegister}>
               {/* ชื่อ / นามสกุล */}
 
-              <div
-                class="grid-2"
-                style={{
-                  gap: '12px',
-                }}
-              >
-
-                <div class="field">
-
-                  <label>
-                    ชื่อ
-                  </label>
+              <div className="form-row">
+                <div className="field">
+                  <label htmlFor="reg-firstName">ชื่อ</label>
 
                   <input
+                    id="reg-firstName"
                     type="text"
                     name="firstName"
-                    value={
-                      registerData.firstName
-                    }
-                    onChange={
-                      handleRegisterChange
-                    }
+                    value={registerData.firstName}
+                    onChange={handleRegisterChange}
                     placeholder="ชื่อจริง"
                   />
-
                 </div>
 
-                <div class="field">
-
-                  <label>
-                    นามสกุล
-                  </label>
+                <div className="field">
+                  <label htmlFor="reg-lastName">นามสกุล</label>
 
                   <input
+                    id="reg-lastName"
                     type="text"
                     name="lastName"
-                    value={
-                      registerData.lastName
-                    }
-                    onChange={
-                      handleRegisterChange
-                    }
+                    value={registerData.lastName}
+                    onChange={handleRegisterChange}
                     placeholder="นามสกุล"
                   />
-
                 </div>
-
               </div>
 
               {/* Username */}
 
-              <div class="field">
-
-                <label>
-                  Username
-                </label>
+              <div className="field">
+                <label htmlFor="reg-username">Username</label>
 
                 <input
+                  id="reg-username"
                   type="text"
                   name="username"
-                  value={
-                    registerData.username
-                  }
-                  onChange={
-                    handleRegisterChange
-                  }
+                  autoComplete="username"
+                  value={registerData.username}
+                  onChange={handleRegisterChange}
                   placeholder="ตั้ง Username"
                 />
-
               </div>
 
-              {/* ห้อง */}
+              {/* ห้อง / เบอร์ */}
 
-              <div class="field">
+              <div className="form-row">
+                <div className="field">
+                  <label htmlFor="reg-roomNumber">เลขห้องพัก</label>
 
-                <label>
-                  เลขห้องพัก
-                </label>
+                  <input
+                    id="reg-roomNumber"
+                    type="text"
+                    name="roomNumber"
+                    value={registerData.roomNumber}
+                    onChange={handleRegisterChange}
+                    placeholder="เช่น A12"
+                  />
+                </div>
 
-                <input
-                  type="text"
-                  name="roomNumber"
-                  value={
-                    registerData.roomNumber
-                  }
-                  onChange={
-                    handleRegisterChange
-                  }
-                  placeholder="เช่น A12"
-                />
+                <div className="field">
+                  <label htmlFor="reg-phone">เบอร์โทรศัพท์</label>
 
-              </div>
-
-              {/* เบอร์ */}
-
-              <div class="field">
-
-                <label>
-                  เบอร์โทรศัพท์
-                </label>
-
-                <input
-                  type="text"
-                  name="phone"
-                  value={
-                    registerData.phone
-                  }
-                  onChange={
-                    handleRegisterChange
-                  }
-                  placeholder="08x-xxx-xxxx"
-                />
-
+                  <input
+                    id="reg-phone"
+                    type="text"
+                    name="phone"
+                    value={registerData.phone}
+                    onChange={handleRegisterChange}
+                    placeholder="08x-xxx-xxxx"
+                  />
+                </div>
               </div>
 
               {/* Email */}
 
-              <div class="field">
-
-                <label>
-                  Email
-                </label>
+              <div className="field">
+                <label htmlFor="reg-email">Email</label>
 
                 <input
+                  id="reg-email"
                   type="email"
                   name="email"
-                  value={
-                    registerData.email
-                  }
-                  onChange={
-                    handleRegisterChange
-                  }
+                  value={registerData.email}
+                  onChange={handleRegisterChange}
                   placeholder="example@email.com"
                 />
-
               </div>
 
               {/* Password */}
 
-              <div class="field">
-
-                <label>
-                  รหัสผ่าน
-                </label>
+              <div className="field">
+                <label htmlFor="reg-password">รหัสผ่าน</label>
 
                 <input
+                  id="reg-password"
                   type="password"
                   name="password"
-                  value={
-                    registerData.password
-                  }
-                  onChange={
-                    handleRegisterChange
-                  }
-                  placeholder="ตั้งรหัสผ่าน"
+                  autoComplete="new-password"
+                  value={registerData.password}
+                  onChange={handleRegisterChange}
+                  placeholder="อย่างน้อย 6 ตัวอักษร"
                 />
-
               </div>
 
               <button
                 type="submit"
-                class="btn btn-brass btn-block"
+                className="btn btn-brass btn-block"
                 disabled={loading}
               >
-                {loading
-                  ? 'กำลังสมัครสมาชิก...'
-                  : 'สมัครสมาชิก'}
+                {loading ? 'กำลังสมัครสมาชิก...' : 'สมัครสมาชิก'}
               </button>
 
-              <div class="switch-line">
-
+              <div className="switch-line">
                 มีบัญชีอยู่แล้ว?{' '}
-
                 <b
                   onClick={() => {
                     setAuthTab('login');
                     setMessage('');
                   }}
-                  style={{
-                    cursor: 'pointer',
-                  }}
                 >
                   เข้าสู่ระบบ
                 </b>
-
               </div>
-
             </form>
           )}
-
         </div>
       </div>
     </div>
