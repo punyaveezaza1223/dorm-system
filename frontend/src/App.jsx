@@ -18,6 +18,7 @@ import Room from "./pages/admin/Room";
 import AdminPayment from "./pages/admin/Payment";
 import AdminRepair from "./pages/admin/Repair";
 import Utility from "./pages/admin/Utility";
+import AdminParcel from "./pages/admin/Parcel";
 import AdminAnnouncement from "./pages/admin/Announcement";
 
 function App() {
@@ -43,6 +44,7 @@ function App() {
         <Route path="payment" element={<AdminPayment />} />
         <Route path="repair" element={<AdminRepair />} />
         <Route path="utility" element={<Utility />} />
+        <Route path="parcel" element={<AdminParcel />} />
         <Route path="announcement" element={<AdminAnnouncement />} />
       </Route>
 

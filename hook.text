@@ -1,0 +1,15 @@
+curl -u <token>: \
+  "http://localhost:9000/api/issues/search?componentKeys=juice-shop-demo&ps=200" \
+  -o issues.json
+
+docker run --rm --memory=8g -e SONAR_HOST_URL="http://host.docker.internal:9000" -e SONAR_TOKEN="sqa_d0877535166a922a9c975848600b319aa8be4240" -v "$(pwd):/usr/src" sonarsource/sonar-scanner-cli 
+
+sonar-scanner-npm -Dsonar.host.url=http://localhost:9000 -Dsonar.token=sqp_ad665d18df6632d8407b1b98da1590fecd19a941 -Dsonar.projectKey=dorm_system
+
+python3 sonar_report.py --host http://localhost:9000 --project juice-shop-demo --token sqp_ad665d18df6632d8407b1b98da1590fecd19a941
+
+py sonar_report.py --host http://localhost:9000 --project dorm_system --token sqp_ad665d18df6632d8407b1b98da1590fecd19a941
+
+curl -u "sqp_ad665d18df6632d8407b1b98da1590fecd19a941": http://localhost:9000/api/authentication/validate 
+
+py sonar_report.py --host http://localhost:9000 --project dorm_system --token sqa_3ef4fb8e90b48baac00baaaf1d0fa284c6f60ad7

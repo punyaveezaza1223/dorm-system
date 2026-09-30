@@ -212,7 +212,7 @@ function Login() {
             <div className="fob"></div>
 
             <div className="name" style={{ color: '#fff' }}>
-              NestKey
+              KPN Haven
               <small style={{ color: 'rgba(255,255,255,.85)' }}>
                 ระบบจัดการหอพักและคอนโด
               </small>

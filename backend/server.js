@@ -506,11 +506,9 @@ app.post("/api/rooms", async (req, res) => {
 // แก้ไขห้อง
 // =================================
 
-// =================================
-// แก้ไขห้อง
-// =================================
-
 app.put("/api/rooms/:id", async (req, res) => {
+  const connection = await db.getConnection();
+
   try {
     const { id } = req.params;
 
@@ -525,43 +523,104 @@ app.put("/api/rooms/:id", async (req, res) => {
       description,
     } = req.body;
 
-    await db.query(
-      `UPDATE rooms
-       SET
-         room_number = ?,
-         floor = ?,
-         type = ?,
-         size_sqm = ?,
-         monthly_rent = ?,
-         status = ?,
-         tenant_name = ?,
-         description = ?
-       WHERE id = ?`,
+    // ถ้าไม่มีชื่อผู้เช่า = ปล่อยห้องว่าง
+    const hasTenant =
+      tenantName &&
+      tenantName.toString().trim() !== "";
+
+    const finalStatus = hasTenant
+      ? roomStatus
+      : "available";
+
+    await connection.beginTransaction();
+
+    // =================================
+    // 1. อัปเดตข้อมูลห้อง
+    // =================================
+
+    await connection.query(
+      `
+      UPDATE rooms
+      SET
+        room_number = ?,
+        floor = ?,
+        type = ?,
+        size_sqm = ?,
+        monthly_rent = ?,
+        status = ?,
+        tenant_name = ?,
+        description = ?
+      WHERE id = ?
+      `,
       [
         roomNumber,
         floor,
         type,
-        size,
+        size || 0,
         monthlyRent,
-        roomStatus,
-        tenantName || null,
+        finalStatus,
+        hasTenant
+          ? tenantName.toString().trim()
+          : null,
         description || null,
         id,
       ]
     );
 
+    // =================================
+    // 2. ถ้าลบชื่อผู้เช่า
+    // ให้ปิดสัญญา active ของห้องนี้
+    // =================================
+
+    if (!hasTenant) {
+      await connection.query(
+        `
+        UPDATE contracts
+        SET
+          status = 'ended'
+        WHERE room_id = ?
+          AND status = 'active'
+        `,
+        [id]
+      );
+    }
+
+    await connection.commit();
+
+    console.log(
+      `อัปเดตห้อง ${id} เรียบร้อย`,
+      {
+        tenantName: hasTenant
+          ? tenantName
+          : null,
+        status: finalStatus,
+      }
+    );
+
     res.json({
       success: true,
-      message: "แก้ไขข้อมูลห้องเรียบร้อย",
+      message: hasTenant
+        ? "แก้ไขข้อมูลห้องเรียบร้อย"
+        : "ลบผู้เช่าออกจากห้องและปรับห้องเป็นห้องว่างเรียบร้อย",
     });
 
   } catch (error) {
-    console.error("Update Room Error:", error);
+
+    await connection.rollback();
+
+    console.error(
+      "Update Room Error:",
+      error
+    );
 
     res.status(500).json({
       success: false,
       message: "ไม่สามารถแก้ไขข้อมูลห้องได้",
+      error: error.message,
     });
+
+  } finally {
+    connection.release();
   }
 });
 // =================================
@@ -2100,6 +2159,528 @@ app.delete(
     }
   }
 );
+
+// =================================
+// Parcel API
+// =================================
+
+// Create the parcel storage on first server start.  Existing installations
+// do not have a SQL migration folder, so this keeps the parcel API usable
+// without a manual database step.
+let parcelTableReady;
+
+const ensureParcelTable = () => {
+  if (!parcelTableReady) {
+    parcelTableReady = db.query(`
+  CREATE TABLE IF NOT EXISTS parcels (
+    id INT NOT NULL AUTO_INCREMENT,
+    tenant_id INT NOT NULL,
+    room_id INT NOT NULL,
+    tracking_number VARCHAR(120) NOT NULL,
+    sender VARCHAR(150) NOT NULL,
+    parcel_type VARCHAR(100) NOT NULL DEFAULT 'พัสดุทั่วไป',
+    description TEXT NULL,
+    status ENUM('pending', 'received') NOT NULL DEFAULT 'pending',
+    received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    picked_up_at TIMESTAMP NULL DEFAULT NULL,
+    note TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_parcels_status (status),
+    KEY idx_parcels_tenant (tenant_id),
+    KEY idx_parcels_room (room_id),
+    CONSTRAINT fk_parcels_tenant FOREIGN KEY (tenant_id) REFERENCES users(id),
+    CONSTRAINT fk_parcels_room FOREIGN KEY (room_id) REFERENCES rooms(id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+
+  return parcelTableReady;
+};
+
+// =================================
+// Admin: ดูพัสดุทั้งหมด
+// =================================
+
+app.get(
+  "/api/parcels",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      await ensureParcelTable();
+
+      const [rows] = await db.query(`
+        SELECT
+          p.id,
+          p.tenant_id,
+          p.room_id,
+
+          r.room_number,
+
+          u.full_name AS recipient,
+
+          p.tracking_number,
+          p.sender,
+          p.parcel_type,
+          p.description,
+
+          p.received_at,
+          p.picked_up_at,
+
+          p.status,
+          p.note,
+
+          p.created_at,
+          p.updated_at
+
+        FROM parcels p
+
+        INNER JOIN users u
+          ON u.id = p.tenant_id
+
+        INNER JOIN rooms r
+          ON r.id = p.room_id
+
+        ORDER BY p.received_at DESC, p.id DESC
+      `);
+
+      res.json({
+        success: true,
+        data: rows,
+      });
+
+    } catch (error) {
+      console.error("GET /api/parcels ERROR:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถโหลดข้อมูลพัสดุได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// Admin: เพิ่มพัสดุ
+// =================================
+
+app.post(
+  "/api/parcels",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      await ensureParcelTable();
+
+      const {
+        room,
+        trackingNumber,
+        sender,
+        parcelType,
+        description,
+        note,
+      } = req.body;
+
+
+      // -----------------------------
+      // ตรวจข้อมูล
+      // -----------------------------
+
+      if (
+        !room ||
+        !trackingNumber ||
+        !sender
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "กรุณากรอกห้อง เลขพัสดุ และผู้ส่ง",
+        });
+      }
+
+
+      // -----------------------------
+      // หาผู้พักจากเลขห้อง
+      // -----------------------------
+
+      const [contracts] = await db.query(
+        `
+        SELECT
+          c.tenant_id,
+          c.room_id,
+          r.room_number,
+          u.full_name AS recipient
+
+        FROM contracts c
+
+        INNER JOIN rooms r
+          ON r.id = c.room_id
+
+        INNER JOIN users u
+          ON u.id = c.tenant_id
+
+        WHERE r.room_number = ?
+          AND c.status = 'active'
+          AND u.role = 'tenant'
+
+        ORDER BY c.id DESC
+
+        LIMIT 1
+        `,
+        [String(room).trim()]
+      );
+
+
+      if (contracts.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "ไม่พบผู้พักที่มีสัญญาอยู่ในห้องนี้",
+        });
+      }
+
+
+      const tenant = contracts[0];
+
+
+      // -----------------------------
+      // บันทึกพัสดุ
+      // -----------------------------
+
+      const [result] = await db.query(
+        `
+        INSERT INTO parcels
+        (
+          tenant_id,
+          room_id,
+          tracking_number,
+          sender,
+          parcel_type,
+          description,
+          status,
+          note
+        )
+
+        VALUES
+        (
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          'pending',
+          ?
+        )
+        `,
+        [
+          tenant.tenant_id,
+          tenant.room_id,
+
+          String(trackingNumber).trim(),
+          String(sender).trim(),
+
+          parcelType
+            ? String(parcelType).trim()
+            : "พัสดุทั่วไป",
+
+          description
+            ? String(description).trim()
+            : null,
+
+          note
+            ? String(note).trim()
+            : null,
+        ]
+      );
+
+
+      // -----------------------------
+      // ดึงข้อมูลที่เพิ่งสร้าง
+      // -----------------------------
+
+      const [rows] = await db.query(
+        `
+        SELECT
+          p.id,
+          p.tenant_id,
+          p.room_id,
+
+          r.room_number,
+
+          u.full_name AS recipient,
+
+          p.tracking_number,
+          p.sender,
+          p.parcel_type,
+          p.description,
+
+          p.received_at,
+          p.picked_up_at,
+
+          p.status,
+          p.note,
+
+          p.created_at,
+          p.updated_at
+
+        FROM parcels p
+
+        INNER JOIN users u
+          ON u.id = p.tenant_id
+
+        INNER JOIN rooms r
+          ON r.id = p.room_id
+
+        WHERE p.id = ?
+
+        LIMIT 1
+        `,
+        [result.insertId]
+      );
+
+
+      res.status(201).json({
+        success: true,
+        message: "บันทึกพัสดุเรียบร้อย",
+        data: rows[0],
+      });
+
+    } catch (error) {
+      console.error("POST /api/parcels ERROR:", error);
+
+      res.status(500).json({
+        success: false,
+        message: "ไม่สามารถบันทึกพัสดุได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// เปลี่ยนสถานะพัสดุ
+// Admin / เจ้าของพัสดุ
+// =================================
+
+app.patch(
+  "/api/parcels/:id/status",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      await ensureParcelTable();
+
+
+      const { id } = req.params;
+      const { status } = req.body;
+
+
+      if (!/^\d+$/.test(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "รหัสพัสดุไม่ถูกต้อง",
+        });
+      }
+
+
+      if (
+        !["pending", "received"].includes(status)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "สถานะไม่ถูกต้อง",
+        });
+      }
+
+
+      // =================================
+      // Admin
+      // =================================
+
+      if (req.user.role === "admin") {
+
+        const [result] = await db.query(
+          `
+          UPDATE parcels
+
+          SET
+            status = ?,
+
+            picked_up_at =
+              CASE
+                WHEN ? = 'received'
+                THEN CURRENT_TIMESTAMP
+                ELSE NULL
+              END
+
+          WHERE id = ?
+          `,
+          [
+            status,
+            status,
+            id,
+          ]
+        );
+
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({
+            success: false,
+            message: "ไม่พบพัสดุ",
+          });
+        }
+
+      }
+
+      // =================================
+      // Tenant
+      // แก้ได้เฉพาะพัสดุของตัวเอง
+      // =================================
+
+      else {
+
+        // ลูกบ้านสามารถยืนยันรับแล้วได้
+        // แต่ไม่สามารถเปลี่ยนของคนอื่น
+
+        if (status !== "received") {
+          return res.status(403).json({
+            success: false,
+            message:
+              "ลูกบ้านสามารถยืนยันรับพัสดุแล้วได้เท่านั้น",
+          });
+        }
+
+
+        const [result] = await db.query(
+          `
+          UPDATE parcels
+
+          SET
+            status = 'received',
+            picked_up_at = CURRENT_TIMESTAMP
+
+          WHERE id = ?
+            AND tenant_id = ?
+            AND status = 'pending'
+          `,
+          [
+            id,
+            req.user.id,
+          ]
+        );
+
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "ไม่พบพัสดุนี้ หรือพัสดุนี้ไม่ใช่ของคุณ",
+          });
+        }
+
+      }
+
+
+      res.json({
+        success: true,
+        message:
+          status === "received"
+            ? "ยืนยันรับพัสดุเรียบร้อย"
+            : "อัปเดตสถานะพัสดุเรียบร้อย",
+      });
+
+    } catch (error) {
+
+      console.error(
+        "PATCH /api/parcels/:id/status ERROR:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "ไม่สามารถอัปเดตสถานะพัสดุได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
+
+// =================================
+// Tenant: ดูเฉพาะพัสดุของตัวเอง
+// =================================
+
+app.get(
+  "/api/tenant/parcels",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      await ensureParcelTable();
+
+
+      const [rows] = await db.query(
+        `
+        SELECT
+          p.id,
+
+          p.room_id,
+          r.room_number,
+
+          p.tracking_number,
+          p.sender,
+          p.parcel_type,
+          p.description,
+
+          p.received_at,
+          p.picked_up_at,
+
+          p.status,
+          p.note,
+
+          p.created_at,
+          p.updated_at
+
+        FROM parcels p
+
+        INNER JOIN rooms r
+          ON r.id = p.room_id
+
+        WHERE p.tenant_id = ?
+
+        ORDER BY p.received_at DESC, p.id DESC
+        `,
+        [req.user.id]
+      );
+
+
+      res.json({
+        success: true,
+        data: rows,
+      });
+
+    } catch (error) {
+
+      console.error(
+        "GET /api/tenant/parcels ERROR:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message:
+          "ไม่สามารถโหลดพัสดุของคุณได้",
+        error: error.message,
+      });
+    }
+  }
+);
+
 
 // =================================
 // Start Server

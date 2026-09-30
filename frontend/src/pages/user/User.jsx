@@ -65,8 +65,8 @@ export default function User() {
   return (
     <div id="shell-resident" className="resident-shell">
       <header className="resident-header">
-        <NavLink to="/user" end className="resident-brand" aria-label="NestKey หน้าหลัก">
-          <span className="resident-brand-mark">N</span><span>NestKey</span>
+        <NavLink to="/user" end className="resident-brand" aria-label="KPN Haven หน้าหลัก">
+          <span className="resident-brand-mark">K</span><span>KPN Haven</span>
         </NavLink>
         <nav className="resident-nav" aria-label="เมนูผู้พักอาศัย">
           {navigation.map((item) => {
