@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "migrate": "node migrations/run-migrations.js",
+    "inspect:rooms": "node scripts/inspect-rooms-schema.js",
+    "test:rooms": "node scripts/test-room-api.js"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +20,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.4.0",
     "mysql2": "^3.23.3"
   }
 }

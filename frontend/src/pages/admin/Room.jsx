@@ -290,13 +290,14 @@ export default function Room() {
     // ให้ส่ง null ไป Backend
     // ==========================================
 
-    const tenantName =
-      roomForm.tenantName?.trim() || null;
+    const isAvailable =
+      isEdit && roomForm.roomStatus === "available";
 
-    const roomStatus =
-      !tenantName && isEdit
-        ? "available"
-        : roomForm.roomStatus;
+    const tenantName = isAvailable
+      ? null
+      : roomForm.tenantName?.trim() || null;
+
+    const roomStatus = roomForm.roomStatus;
 
     const payload = {
       roomNumber: roomForm.roomNumber,
@@ -353,6 +354,39 @@ export default function Room() {
     triggerToast(error.message);
   }
 };
+
+  const deleteRoom = async () => {
+    if (!selectedRoom) return;
+
+    const roomNumber =
+      selectedRoom.roomNumber || selectedRoom.room_number || "นี้";
+
+    const confirmed = window.confirm(
+      `ยืนยันการลบห้อง ${roomNumber}? การดำเนินการนี้ไม่สามารถย้อนกลับได้`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `${API_URL}/rooms/${selectedRoom.id}`,
+        { method: "DELETE" }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "ไม่สามารถลบห้องได้");
+      }
+
+      closeModal();
+      await fetchRooms();
+      triggerToast("ลบห้องเรียบร้อยแล้ว");
+    } catch (error) {
+      console.error("Delete Room Error:", error);
+      triggerToast(error.message);
+    }
+  };
 
   // =================================
   // ค้นหาผู้เช่าจาก ID
@@ -1044,6 +1078,12 @@ export default function Room() {
                       <option value="1-bedroom">
                         1 Bedroom
                       </option>
+                      <option value="1bed">
+                        1 Bedroom (existing)
+                      </option>
+                      <option value="2bed">
+                        2 Bedroom (existing)
+                      </option>
                     </select>
                   </div>
 
@@ -1160,9 +1200,11 @@ export default function Room() {
                         onChange={(e) =>
                           setRoomForm({
                             ...roomForm,
-                            roomStatus:
-                              e.target
-                                .value,
+                            roomStatus: e.target.value,
+                            tenantName:
+                              e.target.value === "available"
+                                ? ""
+                                : roomForm.tenantName,
                           })
                         }
                       >
@@ -1183,6 +1225,22 @@ export default function Room() {
                 </div>
 
                 <div className="modal-foot">
+                  {modalType === "edit" && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={deleteRoom}
+                      style={{
+                        marginRight: "auto",
+                        background: "#c0433f",
+                        borderColor: "#c0433f",
+                        color: "#fff",
+                      }}
+                    >
+                      ลบห้อง
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
