@@ -1,34 +1,123 @@
-import { useEffect, useMemo, useState } from 'react';
-
-const API = 'http://localhost:4000/api';
-const money = (v) => Number(v || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
-const n = (v) => v == null ? '' : Number(v);
+import React, { useState } from 'react';
+import CustomDropdown from '../../components/CustomDropdown';
 
 export default function Utility() {
-  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
-  const [testMode, setTestMode] = useState(false), [runId, setRunId] = useState(''), [runs, setRuns] = useState([]);
-  const [rate, setRate] = useState({ waterRate: '', electricRate: '', commonFee: 200 }), [rooms, setRooms] = useState([]);
-  const [loading, setLoading] = useState(true), [notice, setNotice] = useState(''), [failure, setFailure] = useState(''), [confirming, setConfirming] = useState(null);
-  const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
-  const request = async (url, options = {}) => { const r = await fetch(url, options); const j = await r.json(); if (!r.ok || !j.success) throw new Error(j.message || 'เกิดข้อผิดพลาด'); return j; };
-  const base = () => testMode && runId ? `${API}/admin/utility/${period}/test-runs/${runId}` : `${API}/admin/utility/${period}`;
-  const loadRuns = async () => setRuns((await request(`${API}/admin/utility/${period}/test-runs`, { headers: headers() })).data);
-  const load = async () => { setLoading(true); setFailure(''); try { if (testMode && !runId) { setRooms([]); return; } const result = await request(base(), { headers: headers() }); const saved = result.data.rate; setRate(saved ? { waterRate: n(saved.water_rate), electricRate: n(saved.electric_rate), commonFee: n(saved.common_fee) } : { waterRate: '', electricRate: '', commonFee: 200 }); setRooms(result.data.rooms.map((r) => ({ ...r, waterPrevious: n(r.water_previous), waterCurrent: n(r.water_current), electricPrevious: n(r.electric_previous), electricCurrent: n(r.electric_current) }))); } catch (e) { setFailure(e.message); } finally { setLoading(false); } };
-  useEffect(() => { loadRuns().catch((e) => setFailure(e.message)); }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [period, testMode, runId]); // eslint-disable-line react-hooks/exhaustive-deps
-  const bill = (r) => { const wu = Math.max(0, Number(r.waterCurrent || 0) - Number(r.waterPrevious || 0)), eu = Math.max(0, Number(r.electricCurrent || 0) - Number(r.electricPrevious || 0)), wa = wu * Number(rate.waterRate || 0), ea = eu * Number(rate.electricRate || 0); return { wu, eu, wa, ea, total: Number(r.rent_amount || 0) + wa + ea + Number(rate.commonFee || 0) }; };
-  const total = useMemo(() => rooms.reduce((sum, r) => sum + bill(r).total, 0), [rooms, rate]);
-  const edit = (i, key, value) => setRooms((all) => all.map((r, index) => index === i ? { ...r, [key]: value } : r));
-  const saveRate = async () => { try { const r = await request(`${base()}/rates`, { method: 'PUT', headers: headers(), body: JSON.stringify(rate) }); setNotice(r.message); await load(); } catch (e) { setFailure(e.message); } };
-  const save = async (selected = rooms) => { try { if (testMode && !runId) throw new Error('กรุณาสร้างหรือเลือกรอบทดสอบก่อน'); const r = await request(`${base()}/readings`, { method: 'PUT', headers: headers(), body: JSON.stringify({ readings: selected.map((x) => ({ roomId: x.room_id, roomNumber: x.room_number, waterPrevious: x.waterPrevious, waterCurrent: x.waterCurrent, electricPrevious: x.electricPrevious, electricCurrent: x.electricCurrent })) }) }); setNotice(selected.length === 1 ? `บันทึกข้อมูลห้อง ${selected[0].room_number} สำเร็จ` : r.message); await load(); } catch (e) { setFailure(e.message); } };
-  const issue = async () => { const item = confirming; setConfirming(null); try { const r = await request(`${base()}/invoices`, { method: 'POST', headers: headers(), body: JSON.stringify(item?.all ? {} : { roomId: item.room_id }) }); setNotice(item?.all ? r.message : `ออกใบแจ้งหนี้ห้อง ${item.room_number} สำเร็จ${testMode ? ' (ข้อมูลทดสอบ)' : ''}`); await load(); await loadRuns(); } catch (e) { setFailure(e.message); } };
-  const createRun = async () => { try { const r = await request(`${API}/admin/utility/${period}/test-runs`, { method: 'POST', headers: headers(), body: JSON.stringify(rate) }); setRunId(String(r.data.id)); setNotice(`สร้างรอบทดสอบ #${r.data.version} แล้ว`); await loadRuns(); } catch (e) { setFailure(e.message); } };
-  const deleteRun = async () => { try { const r = await request(`${API}/admin/utility/${period}/test-runs/${runId}`, { method: 'DELETE', headers: headers() }); setRunId(''); setNotice(r.message); await loadRuns(); } catch (e) { setFailure(e.message); } };
-  return <div className="page" data-p="ad-utility"><div className="page-head"><div className="eyebrow">รอบบิลค่าน้ำ ค่าไฟ</div><h2>จัดการค่าน้ำ ค่าไฟ และค่าส่วนกลาง</h2><p>บันทึกมิเตอร์และออกใบแจ้งหนี้ได้ทั้งทุกห้องและรายห้อง</p></div>
-    <div className="card card-pad" style={{ marginBottom: 20 }}><div className="row wrap gap-16"><div className="field" style={{ marginBottom: 0 }}><label>เดือนและปีของรอบบิล</label><input type="month" value={period} onChange={(e) => { setPeriod(e.target.value); setRunId(''); }} /></div><label className="utility-test-toggle"><input type="checkbox" checked={testMode} onChange={(e) => { setTestMode(e.target.checked); setRunId(''); }} /> โหมดทดสอบ</label></div>{testMode && <div className="utility-test-banner"><b>ข้อมูลทดสอบ</b> — ไม่สร้างรายการชำระเงิน ไม่แจ้งเตือนผู้เช่า และไม่รวมรายงานเงินจริง<div className="row wrap gap-12" style={{ marginTop: 10 }}><select value={runId} onChange={(e) => setRunId(e.target.value)}><option value="">เลือกรอบทดสอบเดิม</option>{runs.map((r) => <option key={r.id} value={r.id}>รอบ #{r.version} ({r.invoice_count} ใบแจ้งหนี้)</option>)}</select><button className="btn btn-ghost" onClick={createRun}>สร้างรอบทดสอบใหม่</button>{runId && <button className="btn btn-ghost" onClick={deleteRun}>ลบรอบนี้</button>}</div></div>}</div>
-    {notice && <div className="card card-pad utility-ok">{notice}</div>}{failure && <div className="card card-pad utility-error">{failure}</div>}
-    <section className="card card-pad" style={{ margin: '16px 0 22px' }}><h3>ขั้นตอนที่ 1 — ตั้งค่าค่าใช้จ่ายรายเดือน</h3><div className="grid-3" style={{ marginTop: 16 }}>{[['waterRate', 'ค่าน้ำ (บาท/หน่วย)'], ['electricRate', 'ค่าไฟ (บาท/หน่วย)'], ['commonFee', 'ค่าส่วนกลาง (บาท/ห้อง/เดือน)']].map(([key, label]) => <div className="field" key={key}><label>{label}</label><input min="0" step="0.01" type="number" value={rate[key]} onChange={(e) => setRate({ ...rate, [key]: e.target.value })} /></div>)}</div><button className="btn btn-primary" disabled={testMode && !runId} onClick={saveRate}>บันทึกการตั้งค่าทุกห้อง</button></section>
-      <section className="card" style={{ marginBottom: 22 }}><div className="card-pad"><div className="row between wrap gap-12"><div><h3>ขั้นตอนที่ 2 — บันทึกมิเตอร์</h3><p style={{ margin: '4px 0 0' }}>บันทึกทุกห้อง หรือเฉพาะแถวที่เลือก</p></div><button className="btn btn-primary" disabled={loading || !rooms.length} onClick={() => save()}>บันทึกทุกห้อง</button></div></div><div className="table-wrap"><table className="utility-table"><thead><tr><th>ห้อง</th><th>ค่าเช่า</th><th>น้ำก่อน</th><th>น้ำหลัง</th><th>หน่วย/ค่าน้ำ</th><th>ไฟก่อน</th><th>ไฟหลัง</th><th>หน่วย/ค่าไฟ</th><th>ส่วนกลาง</th><th>รวม</th><th>การจัดการ</th></tr></thead><tbody>{loading ? <tr><td colSpan="11">กำลังโหลด…</td></tr> : rooms.map((r, i) => { const v = bill(r), locked = Boolean(r.invoice_id); return <tr key={r.room_id}><td><b>{r.room_number}</b>{r.invoice_id && <small className="utility-status">{testMode ? 'ออกบิลทดสอบแล้ว' : 'ออกบิลแล้ว'}</small>}</td><td>฿{money(r.rent_amount)}</td>{['waterPrevious', 'waterCurrent'].map((k) => <td key={k}><input type="number" min="0" value={r[k]} disabled={locked} onChange={(e) => edit(i, k, e.target.value)} /></td>)}<td>{v.wu} / ฿{money(v.wa)}</td>{['electricPrevious', 'electricCurrent'].map((k) => <td key={k}><input type="number" min="0" value={r[k]} disabled={locked} onChange={(e) => edit(i, k, e.target.value)} /></td>)}<td>{v.eu} / ฿{money(v.ea)}</td><td>฿{money(rate.commonFee)}</td><td><b>฿{money(v.total)}</b></td><td><div className="utility-actions"><button className="btn btn-ghost" disabled={locked} onClick={() => save([r])}>บันทึก</button><button className="btn btn-brass" disabled={!r.reading_id || Boolean(r.invoice_id)} onClick={() => setConfirming(r)}>ออกใบแจ้งหนี้</button></div></td></tr>; })}</tbody></table></div></section>
-    <section className="card card-pad"><div className="row between wrap gap-16"><div><h3>ขั้นตอนที่ 3 — ออกใบแจ้งหนี้</h3><p style={{ margin: '4px 0 0' }}>ยอดรวมในตาราง: <b>฿{money(total)}</b></p></div><button className="btn btn-brass" disabled={loading || (testMode && !runId)} onClick={() => setConfirming({ all: true })}>ออกใบแจ้งหนี้ทุกห้อง</button></div></section>
-    {confirming && <div className="modal-backdrop"><div className="modal"><h3>ยืนยันการออกใบแจ้งหนี้{testMode ? 'ทดสอบ' : ''}</h3>{confirming.all ? <p>ระบบจะออกเฉพาะห้องที่บันทึกมิเตอร์ครบแล้ว</p> : <p>ห้อง <b>{confirming.room_number}</b> ยอดรวม <b>฿{money(bill(confirming).total)}</b></p>}{testMode && <p className="utility-test-banner">ข้อมูลนี้เป็นข้อมูลทดสอบเท่านั้น จะไม่ส่งให้ผู้เช่า</p>}<div className="row gap-12"><button className="btn btn-primary" onClick={issue}>ยืนยันออกใบแจ้งหนี้</button><button className="btn btn-ghost" onClick={() => setConfirming(null)}>ยกเลิก</button></div></div></div>}</div>;
+  const [toastMsg, setToastMsg] = useState('');
+  const [showToast, setShowToast] = useState(false);
+
+  const triggerToast = (msg) => {
+    setToastMsg(msg);
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 2600);
+  };
+
+  return (
+    <div className="page" data-p="ad-utility">
+      <div className="page-head">
+        <div className="eyebrow">บันทึกมิเตอร์</div>
+        <h2>จัดการค่าน้ำ ค่าไฟ และค่าส่วนกลาง</h2>
+        <p>บันทึกเลขมิเตอร์ประจำเดือน ออกใบแจ้งหนี้ และส่งยอดชำระให้ผู้เช่าแต่ละห้อง</p>
+      </div>
+
+      <div className="card card-pad" style={{ marginBottom: '22px' }}>
+        <div className="row between wrap gap-16">
+          <div className="row gap-12 wrap">
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>ประจำเดือน</label>
+              <CustomDropdown defaultValue="2026-08" aria-label="ประจำเดือน" options={[
+                { value: '2026-08', label: 'สิงหาคม 2569' },
+                { value: '2026-07', label: 'กรกฎาคม 2569' },
+                { value: '2026-06', label: 'มิถุนายน 2569' },
+              ]} />
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>อาคาร</label>
+              <CustomDropdown aria-label="อาคาร" options={[
+                { value: 'A', label: 'ตึก A' },
+                { value: 'B', label: 'ตึก B' },
+              ]} />
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-brass"
+            style={{ alignSelf: 'flex-end' }}
+            onClick={() => triggerToast('คำนวณและส่งใบแจ้งหนี้ไปยังทุกห้องแล้ว')}
+          >
+            ออกใบแจ้งหนี้ประจำเดือน
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ห้อง</th>
+                <th>มิเตอร์น้ำ (เดิม ➔ ใหม่)</th>
+                <th>ค่าน้ำ (฿)</th>
+                <th>มิเตอร์ไฟ (เดิม ➔ ใหม่)</th>
+                <th>ค่าไฟ (฿)</th>
+                <th>ส่วนกลาง (฿)</th>
+                <th>รวมทั้งหมด (฿)</th>
+                <th>การจัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="mono" style={{ fontWeight: 600 }}>A01</td>
+                <td className="mono">120 ➔ 120</td>
+                <td className="mono">0</td>
+                <td className="mono">840 ➔ 840</td>
+                <td className="mono">0</td>
+                <td className="mono">200</td>
+                <td className="mono" style={{ fontWeight: 600 }}>200</td>
+                <td>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => triggerToast('บันทึกมิเตอร์ A01')}>
+                    บันทึก
+                  </button>
+                </td>
+              </tr>
+              <tr>
+                <td className="mono" style={{ fontWeight: 600 }}>A02</td>
+                <td className="mono">412 ➔ 421</td>
+                <td className="mono">180</td>
+                <td className="mono">2150 ➔ 2242</td>
+                <td className="mono">460</td>
+                <td className="mono">200</td>
+                <td className="mono" style={{ fontWeight: 600 }}>840</td>
+                <td>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => triggerToast('บันทึกมิเตอร์ A02')}>
+                    บันทึก
+                  </button>
+                </td>
+              </tr>
+              <tr>
+                <td className="mono" style={{ fontWeight: 600 }}>A03</td>
+                <td className="mono">305 ➔ 318</td>
+                <td className="mono">260</td>
+                <td className="mono">1890 ➔ 2010</td>
+                <td className="mono">600</td>
+                <td className="mono">200</td>
+                <td className="mono" style={{ fontWeight: 600 }}>1,060</td>
+                <td>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => triggerToast('บันทึกมิเตอร์ A03')}>
+                    บันทึก
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className={`toast ${showToast ? 'show' : ''}`} id="toast">
+        <span className="dot"></span>
+        <span id="toastMsg">{toastMsg}</span>
+      </div>
+    </div>
+  );
 }

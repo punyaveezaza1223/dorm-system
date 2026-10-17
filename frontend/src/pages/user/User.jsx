@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Bell, House, MessageCircle, Package, Wallet, Wrench, FileText } from 'lucide-react';
+import { Bell, House, MessageCircle, Package, Wallet, Wrench } from 'lucide-react';
 
 const navigation = [
   { to: '/user', label: 'หน้าหลัก', icon: House, end: true },
@@ -15,9 +15,6 @@ export default function User() {
   const navigate = useNavigate();
   const [tenant, setTenant] = useState(null);
   const [room, setRoom] = useState(null);
-  const [notifications, setNotifications] = useState([]);
-  const [unread, setUnread] = useState(0);
-  const [noticeOpen, setNoticeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -50,11 +47,6 @@ export default function User() {
     };
     fetchTenantData();
   }, [navigate]);
-  useEffect(() => {
-    const loadNotifications = async () => { try { const result = await fetch('http://localhost:4000/api/notifications', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }); const data = await result.json(); if (data.success) { setNotifications(data.data || []); setUnread(data.unreadCount || 0); } } catch { /* next poll retries */ } };
-    loadNotifications(); const timer = setInterval(loadNotifications, 30000); return () => clearInterval(timer);
-  }, []);
-  const openNotification = async (item) => { try { await fetch(`http://localhost:4000/api/notifications/${item.id}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }); setUnread((count) => Math.max(0, count - (item.read_at ? 0 : 1))); setNotifications((list) => list.map((n) => n.id === item.id ? { ...n, read_at: n.read_at || new Date().toISOString() } : n)); } finally { setNoticeOpen(false); navigate(item.destination || '/user'); } };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -83,7 +75,7 @@ export default function User() {
           })}
         </nav>
         <div className="resident-account">
-          <div className="resident-notification-wrap"><button className="resident-notice" type="button" onClick={() => setNoticeOpen((open) => !open)} aria-label="การแจ้งเตือน"><Bell size={21} />{unread > 0 && <i>{unread > 99 ? '99+' : unread}</i>}</button>{noticeOpen && <section className="notification-dropdown"><header><b>การแจ้งเตือน</b><button onClick={() => { setNoticeOpen(false); navigate('/user/notifications'); }}>ดูทั้งหมด</button></header>{notifications.slice(0, 4).map((item) => <button className={`notification-mini ${item.read_at ? '' : 'unread'}`} key={item.id} onClick={() => openNotification(item)}><FileText size={18}/><span><b>{item.title}</b><small>{new Date(item.created_at).toLocaleString('th-TH')}</small></span></button>)}{!notifications.length && <p>ยังไม่มีการแจ้งเตือน</p>}<button className="notification-all" onClick={() => { setNoticeOpen(false); navigate('/user/notifications'); }}>ดูการแจ้งเตือนทั้งหมด →</button></section>}</div>
+          <button className="resident-notice" type="button" aria-label="การแจ้งเตือน">♧<i /></button>
           <div className="resident-avatar">{getAvatar()}</div>
           <button className="resident-logout" type="button" onClick={handleLogout}>ออกจากระบบ</button>
         </div>

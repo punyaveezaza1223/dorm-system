@@ -10,7 +10,6 @@ import Complaint from "./pages/user/Complaint";
 import Payment from "./pages/user/Payment";
 import Parcel from "./pages/user/Parcel";
 import Announcement from "./pages/user/Announcement";
-import Notifications, { NotificationDetail } from "./pages/user/Notifications";
 
 // Admin
 import Admin from "./pages/admin/Admin";
@@ -36,8 +35,6 @@ function App() {
         <Route path="payment" element={<Payment />} />
         <Route path="parcel" element={<Parcel />} />
         <Route path="announcement" element={<Announcement />} />
-        <Route path="notifications" element={<Notifications />} />
-        <Route path="notifications/:id" element={<NotificationDetail />} />
       </Route>
 
       {/* ================= ADMIN ================= */}

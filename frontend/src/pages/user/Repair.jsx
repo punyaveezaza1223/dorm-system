@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, ImagePlus, X } from 'lucide-react';
+import { ImagePlus } from 'lucide-react';
 import CustomDropdown from '../../components/CustomDropdown';
 
 const API_URL = 'http://localhost:4000';
@@ -14,8 +14,6 @@ export default function Repair() {
 
   const [repairs, setRepairs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [images, setImages] = useState([]);
-  const [viewer, setViewer] = useState(null);
 
   // =================================
   // Toast
@@ -54,8 +52,7 @@ export default function Repair() {
         throw new Error(data.message || 'ไม่สามารถดึงข้อมูลได้');
       }
 
-      const withImages = await Promise.all((data.data || []).map(async (repair) => ({ ...repair, images: (await Promise.all((repair.images || []).map(async (image) => { const imageResponse = await fetch(`${API_URL}${image.url}`, { headers: { Authorization: `Bearer ${token}` } }); return imageResponse.ok ? { ...image, preview: URL.createObjectURL(await imageResponse.blob()) } : null; }))).filter(Boolean) })));
-      setRepairs(withImages);
+      setRepairs(data.data || []);
     } catch (error) {
       console.error('Fetch Repairs Error:', error);
       triggerToast('ไม่สามารถโหลดประวัติการแจ้งซ่อมได้');
@@ -66,18 +63,6 @@ export default function Repair() {
   useEffect(() => {
     fetchRepairs();
   }, []);
-
-  const addImages = (fileList) => {
-    const files = Array.from(fileList || []);
-    const accepted = files.filter((file) => ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) && file.size <= 5 * 1024 * 1024);
-    if (accepted.length !== files.length) triggerToast('รองรับ JPG, JPEG, PNG, WEBP ขนาดไม่เกิน 5 MB เท่านั้น');
-    setImages((current) => {
-      const remaining = 5 - current.length;
-      if (accepted.length > remaining) triggerToast('แนบรูปได้สูงสุด 5 รูป');
-      return [...current, ...accepted.slice(0, remaining).map((file) => ({ file, preview: URL.createObjectURL(file) }))];
-    });
-  };
-  const removeImage = (index) => setImages((current) => { URL.revokeObjectURL(current[index].preview); return current.filter((_, itemIndex) => itemIndex !== index); });
 
   // =================================
   // ส่งเรื่องแจ้งซ่อม
@@ -103,15 +88,17 @@ export default function Repair() {
         return;
       }
 
-      const formData = new FormData();
-      formData.append('category', category); formData.append('description', description); formData.append('urgency', urgency);
-      images.forEach((image) => formData.append('images', image.file));
       const response = await fetch(`${API_URL}/api/tenant/repairs`, {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: formData,
+        body: JSON.stringify({
+          category,
+          description,
+          urgency,
+        }),
       });
 
       const data = await response.json();
@@ -126,8 +113,6 @@ export default function Repair() {
       setCategory('');
       setDescription('');
       setUrgency('ทั่วไป');
-      images.forEach((image) => URL.revokeObjectURL(image.preview));
-      setImages([]);
 
       // โหลดประวัติใหม่
       await fetchRepairs();
@@ -194,22 +179,6 @@ export default function Repair() {
       month: 'short',
       year: 'numeric',
     });
-  };
-
-  const latestRepair = repairs[0] || null;
-
-  const getRepairProgress = (status) => {
-    if (status === 'completed') return 4;
-    if (status === 'in_progress') return 3;
-    return 1;
-  };
-
-  const getLatestStatusText = (status) => {
-    if (status === 'pending') return 'รอรับเรื่อง';
-    if (status === 'in_progress') return 'กำลังซ่อม';
-    if (status === 'completed') return 'เสร็จสิ้น';
-    if (status === 'cancelled') return 'ยกเลิก';
-    return getStatusText(status);
   };
 
   return (
@@ -308,13 +277,15 @@ export default function Repair() {
           {/* Upload */}
           <div className="field">
 
-            <label className="upload-box repair-image-upload" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addImages(event.dataTransfer.files); }}>
+            <div className="upload-box">
               <ImagePlus size={22} strokeWidth={2} />
-              ลากรูปมาวาง หรือ <b style={{ color: 'var(--brass-deep)' }}>เลือกไฟล์</b>
-              <small>JPG, JPEG, PNG, WEBP · ไม่เกิน 5 MB/รูป · สูงสุด 5 รูป ({images.length}/5)</small>
-              <input type="file" accept="image/*" multiple onChange={(event) => { addImages(event.target.files); event.target.value = ''; }} />
-            </label>
-            {images.length > 0 && <div className="repair-image-preview">{images.map((image, index) => <div key={image.preview}><img src={image.preview} alt={`ภาพตัวอย่าง ${index + 1}`} onClick={() => setViewer({ images: images.map((item) => item.preview), index })} /><button type="button" onClick={() => removeImage(index)} aria-label="ลบรูป"><X size={14} /></button></div>)}</div>}
+
+              ลากไฟล์มาวาง หรือ{' '}
+
+              <b style={{ color: 'var(--brass-deep)' }}>
+                เลือกไฟล์
+              </b>
+            </div>
 
           </div>
 
@@ -335,7 +306,7 @@ export default function Repair() {
         {/* ประวัติแจ้งซ่อม */}
         {/* ================================= */}
 
-        <div id="repair-history" className="card card-pad">
+        <div className="card card-pad">
 
           <h4 style={{ marginBottom: '14px', fontSize: '15px' }}>
             ประวัติการแจ้งซ่อม
@@ -391,7 +362,6 @@ export default function Repair() {
                     >
                       แจ้ง {formatDate(repair.created_at)}
                     </div>
-                    {repair.images?.length > 0 && <div className="repair-history-images">{repair.images.map((image, index) => <img key={image.id} src={image.preview} alt={`รูปแจ้งซ่อม ${index + 1}`} onClick={() => setViewer({ images: repair.images.map((item) => item.preview), index })} />)}</div>}
 
                   </div>
 
@@ -411,60 +381,6 @@ export default function Repair() {
 
       </div>
 
-      <section className="tenant-repair-status-card">
-        <div className="tenant-repair-status-head">
-          <h3>สถานะงานแจ้งซ่อมล่าสุด</h3>
-          {latestRepair && (
-            <span className={`badge ${getStatusClass(latestRepair.status)}`}>
-              <i />{getLatestStatusText(latestRepair.status)}
-            </span>
-          )}
-        </div>
-
-        {latestRepair ? (
-          <>
-            <p className="tenant-repair-status-detail">
-              #{latestRepair.id} · {latestRepair.category || 'แจ้งซ่อม'} · แจ้งเมื่อ {formatDate(latestRepair.created_at)}
-            </p>
-
-            <div className="tenant-repair-progress" aria-label="ความคืบหน้างานแจ้งซ่อม">
-              {[
-                ['แจ้งซ่อม', 1],
-                ['รับเรื่อง', 2],
-                ['กำลังซ่อม', 3],
-                ['เสร็จสิ้น', 4],
-              ].map(([label, step]) => {
-                const currentStep = getRepairProgress(latestRepair.status);
-                const completed =
-                  step < currentStep ||
-                  (step === 1 && currentStep === 1) ||
-                  (step === currentStep && latestRepair.status === 'completed');
-                const active = step === currentStep && latestRepair.status !== 'completed';
-
-                return (
-                  <div className="tenant-repair-progress-step" key={step}>
-                    <span className={completed ? 'done' : active ? 'active' : ''}>
-                      {completed ? '✓' : step}
-                    </span>
-                    <b>{label}</b>
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              className="tenant-repair-detail-button"
-              onClick={() => document.getElementById('repair-history')?.scrollIntoView({ behavior: 'smooth' })}
-            >
-              ดูรายละเอียดทั้งหมด
-            </button>
-          </>
-        ) : (
-          <p className="tenant-repair-empty">ยังไม่มีรายการแจ้งซ่อม</p>
-        )}
-      </section>
-
       {/* ================================= */}
       {/* Toast */}
       {/* ================================= */}
@@ -479,12 +395,6 @@ export default function Repair() {
           {toastMsg}
         </span>
       </div>
-      {viewer && <div className="repair-image-viewer" role="dialog" aria-modal="true" aria-label="ภาพแจ้งซ่อมขยาย" onClick={() => setViewer(null)}>
-        <button className="repair-viewer-close" type="button" onClick={() => setViewer(null)} aria-label="ปิดภาพ"><X /></button>
-        {viewer.images.length > 1 && <button className="repair-viewer-prev" type="button" aria-label="รูปก่อนหน้า" onClick={(event) => { event.stopPropagation(); setViewer((current) => ({ ...current, index: (current.index - 1 + current.images.length) % current.images.length })); }}><ChevronLeft /></button>}
-        <img src={viewer.images[viewer.index]} alt="ภาพแจ้งซ่อมขยาย" onClick={(event) => event.stopPropagation()} />
-        {viewer.images.length > 1 && <button className="repair-viewer-next" type="button" aria-label="รูปถัดไป" onClick={(event) => { event.stopPropagation(); setViewer((current) => ({ ...current, index: (current.index + 1) % current.images.length })); }}><ChevronRight /></button>}
-      </div>}
 
     </div>
   );
