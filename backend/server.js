@@ -2941,6 +2941,12 @@ const utilityRoomsQuery = `
   LEFT JOIN utility_invoices ui ON ui.room_id = r.id AND ui.billing_period = ?
   ORDER BY r.floor, r.room_number`;
 
+// Test utility billing has been retired. Keep old URLs unavailable for clients
+// that may still have the previous screen open.
+app.use('/api/admin/utility/:period/test-runs', (_req, res) => {
+  res.status(404).json({ success: false, message: 'ไม่พบปลายทางที่ร้องขอ' });
+});
+
 const testRunId = (value) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
 const utilityTestRoomsQuery = `
   SELECT r.id AS room_id, r.room_number, COALESCE(c.monthly_rent, r.monthly_rent) AS rent_amount,
