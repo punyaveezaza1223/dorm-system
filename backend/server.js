@@ -247,6 +247,8 @@ app.get("/api/dashboard", async (req, res) => {
       LEFT JOIN users u
         ON u.id = c.tenant_id
 
+      WHERE r.deleted_at IS NULL
+
       ORDER BY r.room_number ASC
     `);
 
@@ -409,6 +411,8 @@ app.get("/api/rooms", async (req, res) => {
 
       LEFT JOIN users u
         ON u.id = c.tenant_id
+
+      WHERE r.deleted_at IS NULL
 
       ORDER BY r.floor ASC, r.room_number ASC
     `);
@@ -740,7 +744,7 @@ app.delete("/api/rooms/:id", async (req, res) => {
     const { id } = req.params;
 
     const [result] = await db.query(
-      "DELETE FROM rooms WHERE id = ?",
+      "UPDATE rooms SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
       [id]
     );
 
@@ -2939,6 +2943,7 @@ const utilityRoomsQuery = `
   LEFT JOIN users u ON u.id = c.tenant_id
   LEFT JOIN utility_readings ur ON ur.room_id = r.id AND ur.billing_period = ?
   LEFT JOIN utility_invoices ui ON ui.room_id = r.id AND ui.billing_period = ?
+  WHERE r.deleted_at IS NULL
   ORDER BY r.floor, r.room_number`;
 
 // Test utility billing has been retired. Keep old URLs unavailable for clients
