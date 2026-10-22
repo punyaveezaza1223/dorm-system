@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from "express";
 import cors from "cors";
 import db from "./db.js";
@@ -6,6 +7,16 @@ import bcrypt from "bcryptjs";
 import multer from "multer";
 import { existsSync, mkdirSync, unlinkSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import {
+  generateOtp, generateResetToken, hashOtp, hashRateLimitValue, hashResetToken,
+  isValidEmail, normalizeEmail, secureHashEquals,
+} from './lib/passwordRecovery.js';
+import { emailService, passwordResetEmail } from './services/emailService.js';
+import {
+  createEmailVerificationService,
+  createMySqlEmailVerificationStore,
+  GENERIC_EMAIL_VERIFICATION_REQUEST_MESSAGE,
+} from './services/emailVerificationService.js';
 
 const app = express();
 app.use(cors());
@@ -44,13 +55,35 @@ app.use("/uploads", express.static(join(process.cwd(), "uploads")));
 // JWT Secret
 // =================================
 
-const JWT_SECRET = "rental-system-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET || "rental-system-secret-key";
+const PASSWORD_RESET_SECRET = process.env.PASSWORD_RESET_SECRET || JWT_SECRET;
+const EMAIL_VERIFICATION_SECRET = process.env.EMAIL_VERIFICATION_SECRET || PASSWORD_RESET_SECRET;
+const EMAIL_VERIFICATION_FRONTEND_URL = process.env.EMAIL_VERIFICATION_FRONTEND_URL || 'http://localhost:5173/verify-email';
+const GENERIC_RECOVERY_MESSAGE = 'หากอีเมลนี้ผูกกับบัญชีและยืนยันแล้ว ระบบจะส่งรหัส OTP ให้ทางอีเมล';
+if (process.env.NODE_ENV === 'production' && (
+  !process.env.JWT_SECRET || !process.env.PASSWORD_RESET_SECRET ||
+  !process.env.EMAIL_VERIFICATION_SECRET ||
+  process.env.JWT_SECRET.length < 32 || process.env.PASSWORD_RESET_SECRET.length < 32 ||
+  process.env.EMAIL_VERIFICATION_SECRET.length < 32 ||
+  process.env.JWT_SECRET === process.env.PASSWORD_RESET_SECRET ||
+  process.env.JWT_SECRET === process.env.EMAIL_VERIFICATION_SECRET ||
+  process.env.PASSWORD_RESET_SECRET === process.env.EMAIL_VERIFICATION_SECRET
+)) {
+  throw new Error('JWT_SECRET, PASSWORD_RESET_SECRET, and EMAIL_VERIFICATION_SECRET must be distinct secrets of at least 32 characters in production');
+}
+
+const emailVerificationService = createEmailVerificationService({
+  store: createMySqlEmailVerificationStore({ db }),
+  emailService,
+  secret: EMAIL_VERIFICATION_SECRET,
+  frontendUrl: EMAIL_VERIFICATION_FRONTEND_URL,
+});
 
 // =================================
 // Authentication Middleware
 // =================================
 
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -72,6 +105,17 @@ const authenticateToken = (req, res, next) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
 
+    const [[user]] = await db.query('SELECT session_version FROM users WHERE id = ? LIMIT 1', [decoded.id]);
+    // Tokens issued before this migration have no version.  They remain valid only
+    // until that account's first password reset increments its version.
+    const tokenSessionVersion = decoded.sessionVersion;
+    const sessionIsValid = Number.isInteger(tokenSessionVersion)
+      ? Number(user?.session_version) === tokenSessionVersion
+      : Number(user?.session_version) === 0;
+    if (!user || !sessionIsValid) {
+      return res.status(401).json({ success: false, message: 'Session หมดอายุหรือถูกยกเลิกแล้ว' });
+    }
+
     req.user = decoded;
 
     next();
@@ -86,12 +130,40 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+const emailNotificationTypes = new Set(['invoice', 'payment', 'repair']);
+const deliverNotificationEmail = async ({ recipientId, type, title, body, eventKey }) => {
+  if (!emailNotificationTypes.has(type)) return;
+  try {
+    const [reservation] = await db.query(`INSERT IGNORE INTO email_delivery_events
+      (recipient_id, event_key, event_type) VALUES (?, ?, ?)`, [recipientId, eventKey, type]);
+    if (!reservation.affectedRows) return;
+    const [[recipient]] = await db.query('SELECT email FROM users WHERE id = ? AND email_verified_at IS NOT NULL LIMIT 1', [recipientId]);
+    if (!recipient?.email) {
+      await db.query("UPDATE email_delivery_events SET status = 'skipped', last_error = ? WHERE recipient_id = ? AND event_key = ?", ['Recipient email is not verified', recipientId, eventKey]);
+      return;
+    }
+    const result = await emailService.send({
+      to: recipient.email,
+      subject: `KPN Haven: ${title}`,
+      text: `${title}\n${body || ''}`,
+      html: `<h2>${String(title).replace(/[&<>"']/g, '')}</h2><p>${String(body || '').replace(/[&<>"']/g, '')}</p>`,
+    });
+    await db.query("UPDATE email_delivery_events SET status = ?, sent_at = CASE WHEN ? = 'sent' THEN CURRENT_TIMESTAMP ELSE NULL END, last_error = ? WHERE recipient_id = ? AND event_key = ?", [result.status === 'sent' || result.status === 'mocked' ? 'sent' : 'skipped', result.status, result.reason || null, recipientId, eventKey]);
+  } catch (error) {
+    console.error('Notification email failed:', error.message);
+    await db.query("UPDATE email_delivery_events SET status = 'failed', last_error = ? WHERE recipient_id = ? AND event_key = ?", [String(error.message).slice(0, 500), recipientId, eventKey]).catch(() => {});
+  }
+};
+
 // A unique event key prevents duplicate notifications when an API request is retried.
 const createNotification = async (recipientId, type, title, body, relatedId, destination, eventKey, connection = db) => {
   if (!recipientId) return;
-  await connection.query(`INSERT IGNORE INTO notifications
+  const [result] = await connection.query(`INSERT IGNORE INTO notifications
     (recipient_id, type, title, body, related_id, destination, event_key)
     VALUES (?, ?, ?, ?, ?, ?, ?)`, [recipientId, type, title, body || null, relatedId || null, destination || null, eventKey]);
+  // Transactions dispatch their email explicitly after commit; never email rolled-back data.
+  if (result.affectedRows && connection === db) void deliverNotificationEmail({ recipientId, type, title, body, eventKey });
+  return result;
 };
 
 app.get('/api/notifications', authenticateToken, async (req, res) => {
@@ -360,6 +432,41 @@ app.get("/api/dashboard", async (req, res) => {
 // =================================
 
 // ดึงข้อมูลห้องทั้งหมด
+// =================================
+// Resident directory (admin)
+// Reads the existing user, contract and payment records; no new data fields.
+// =================================
+app.get("/api/admin/residents", async (req, res) => {
+  try {
+    const [residents] = await db.query(`
+      SELECT
+        u.id AS tenant_id, u.full_name, u.phone, u.email,
+        c.id AS contract_id, c.status AS contract_status, c.start_date, c.end_date,
+        r.id AS room_id, r.room_number, r.floor,
+        latest_payment.id AS payment_id, latest_payment.amount AS payment_amount,
+        latest_payment.status AS payment_status, latest_payment.paid_date AS payment_paid_date,
+        latest_payment.due_date AS payment_due_date
+      FROM users u
+      LEFT JOIN contracts c ON c.id = (
+        SELECT c2.id FROM contracts c2
+        WHERE c2.tenant_id = u.id
+        ORDER BY (c2.status = 'active') DESC, c2.start_date DESC, c2.id DESC LIMIT 1
+      )
+      LEFT JOIN rooms r ON r.id = c.room_id
+      LEFT JOIN payments latest_payment ON latest_payment.id = (
+        SELECT p.id FROM payments p WHERE p.contract_id = c.id
+        ORDER BY COALESCE(p.paid_date, p.due_date) DESC, p.id DESC LIMIT 1
+      )
+      WHERE u.role = 'tenant'
+      ORDER BY (c.status = 'active') DESC, r.floor ASC, r.room_number ASC, u.full_name ASC
+    `);
+    res.json({ success: true, data: residents });
+  } catch (error) {
+    console.error("Resident directory error:", error);
+    res.status(500).json({ success: false, message: "ไม่สามารถโหลดรายชื่อผู้พักอาศัยได้" });
+  }
+});
+
 app.get("/api/rooms", async (req, res) => {
   try {
     const [rooms] = await db.query(`
@@ -1279,9 +1386,18 @@ app.post("/api/auth/register", async (req, res) => {
 
     await connection.commit();
 
+    // Account creation must not be rolled back merely because an email provider
+    // is unavailable. The verification workflow records its own delivery result.
+    void emailVerificationService.request({
+      email,
+      requestIp: getClientIp(req),
+    }).catch((deliveryError) => {
+      console.error('Post-registration email verification failed:', deliveryError.message);
+    });
+
     res.status(201).json({
       success: true,
-      message: "สมัครสมาชิกเรียบร้อย",
+      message: "สมัครสมาชิกเรียบร้อย โปรดตรวจสอบอีเมลเพื่อยืนยันบัญชี",
       userId,
       room: {
         id: room.id,
@@ -1340,10 +1456,12 @@ app.post("/api/auth/login", async (req, res) => {
         id,
         username,
         password,
+        session_version,
         role,
         full_name,
         phone,
-        email
+        email,
+        email_verified_at
       FROM users
       WHERE
         username = ?
@@ -1399,6 +1517,7 @@ app.post("/api/auth/login", async (req, res) => {
         id: user.id,
         role: user.role,
         username: user.username,
+        sessionVersion: Number(user.session_version),
       },
       JWT_SECRET,
       {
@@ -1423,6 +1542,7 @@ app.post("/api/auth/login", async (req, res) => {
         fullName: user.full_name,
         phone: user.phone,
         email: user.email,
+        emailVerified: Boolean(user.email_verified_at),
       },
     });
 
@@ -1434,6 +1554,176 @@ app.post("/api/auth/login", async (req, res) => {
       message: "ไม่สามารถเข้าสู่ระบบได้",
       error: error.message,
     });
+  }
+});
+
+// =================================
+// Password recovery (verified email + single-use OTP)
+// =================================
+
+const getClientIp = (req) => String(req.socket?.remoteAddress || req.ip || 'unknown').slice(0, 128);
+
+// =================================
+// Email verification (single-use link, explicit POST confirmation)
+// =================================
+
+app.post('/api/auth/email-verification/request', async (req, res) => {
+  try {
+    const result = await emailVerificationService.request({
+      email: req.body?.email,
+      requestIp: getClientIp(req),
+    });
+    return res.json(result);
+  } catch (error) {
+    console.error('Email verification request error:', error.message);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถส่งคำขอยืนยันอีเมลได้ในขณะนี้' });
+  }
+});
+
+app.post('/api/auth/email-verification/confirm', async (req, res) => {
+  try {
+    const result = await emailVerificationService.confirm({ token: String(req.body?.token || '') });
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Email verification confirmation error:', error.message);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถยืนยันอีเมลได้ในขณะนี้' });
+  }
+});
+
+app.post('/api/account/email-verification/resend', authenticateToken, async (req, res) => {
+  try {
+    const result = await emailVerificationService.resendForUser({
+      userId: req.user.id,
+      requestIp: getClientIp(req),
+    });
+    return res.json(result);
+  } catch (error) {
+    console.error('Authenticated email verification resend error:', error.message);
+    return res.status(500).json({ success: false, message: GENERIC_EMAIL_VERIFICATION_REQUEST_MESSAGE });
+  }
+});
+
+app.patch('/api/tenant/email', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'tenant') return res.status(403).json({ success: false, message: 'ไม่มีสิทธิ์แก้ไขอีเมลบัญชีนี้' });
+  try {
+    const result = await emailVerificationService.changeEmail({
+      userId: req.user.id,
+      email: req.body?.email,
+      requestIp: getClientIp(req),
+    });
+    return res.status(result.success ? 200 : result.status === 'invalid-email' ? 400 : 409).json(result);
+  } catch (error) {
+    console.error('Tenant email change error:', error.message);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถเปลี่ยนอีเมลได้ในขณะนี้' });
+  }
+});
+
+app.post('/api/auth/password-recovery/request-otp', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const emailHash = hashRateLimitValue({ value: email || 'invalid', secret: PASSWORD_RESET_SECRET });
+  const ipHash = hashRateLimitValue({ value: getClientIp(req), secret: PASSWORD_RESET_SECRET });
+  const connection = await db.getConnection();
+  let otpDelivery = null;
+  try {
+    const [[limits]] = await connection.query(`SELECT
+      MAX(created_at) AS last_requested_at,
+      MAX(created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 60 SECOND)) AS requested_within_cooldown,
+      SUM(created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR)) AS email_hour_count,
+      (SELECT COUNT(*) FROM password_reset_request_attempts WHERE ip_hash = ? AND created_at >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 HOUR)) AS ip_hour_count
+      FROM password_reset_request_attempts WHERE email_hash = ?`, [ipHash, emailHash]);
+    await connection.query('INSERT INTO password_reset_request_attempts (email_hash, ip_hash) VALUES (?, ?)', [emailHash, ipHash]);
+
+    const recentlyRequested = Boolean(Number(limits.requested_within_cooldown));
+    const rateLimited = recentlyRequested || Number(limits.email_hour_count || 0) >= 5 || Number(limits.ip_hour_count || 0) >= 20;
+    if (!rateLimited && isValidEmail(email)) {
+      const [[user]] = await connection.query(`SELECT id, email FROM users
+        WHERE LOWER(email) = ? AND email_verified_at IS NOT NULL LIMIT 1`, [email]);
+      if (user) {
+        const otp = generateOtp();
+        await connection.query(`UPDATE password_reset_otps SET used_at = CURRENT_TIMESTAMP
+          WHERE user_id = ? AND used_at IS NULL`, [user.id]);
+        await connection.query(`INSERT INTO password_reset_otps (user_id, otp_hash, request_ip_hash, expires_at)
+          VALUES (?, ?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))`, [user.id, hashOtp({ userId: user.id, otp, secret: PASSWORD_RESET_SECRET }), ipHash]);
+        otpDelivery = { email: user.email, otp };
+      }
+    }
+    connection.release();
+    if (otpDelivery) {
+      void emailService.send({ to: otpDelivery.email, ...passwordResetEmail({ otp: otpDelivery.otp }) })
+        .catch((error) => console.error('Password recovery email failed:', error.message));
+    }
+    return res.json({ success: true, message: GENERIC_RECOVERY_MESSAGE, retryAfterSeconds: 60 });
+  } catch (error) {
+    connection.release();
+    console.error('Password recovery request error:', error);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถส่งคำขอกู้คืนบัญชีได้ในขณะนี้' });
+  }
+});
+
+app.post('/api/auth/password-recovery/verify-otp', async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  const otp = String(req.body?.otp || '').replace(/\D/g, '');
+  if (!isValidEmail(email) || !/^\d{6}$/.test(otp)) return res.status(400).json({ success: false, message: 'รหัส OTP ไม่ถูกต้องหรือหมดอายุแล้ว' });
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[record]] = await connection.query(`SELECT o.id, o.user_id, o.otp_hash, o.expires_at, o.attempt_count
+      FROM password_reset_otps o JOIN users u ON u.id = o.user_id
+      WHERE LOWER(u.email) = ? AND u.email_verified_at IS NOT NULL AND o.used_at IS NULL
+        AND o.expires_at > CURRENT_TIMESTAMP
+      ORDER BY o.created_at DESC LIMIT 1 FOR UPDATE`, [email]);
+    if (!record) {
+      await connection.commit();
+      return res.status(400).json({ success: false, message: 'รหัส OTP ไม่ถูกต้องหรือหมดอายุแล้ว' });
+    }
+    const expectedHash = hashOtp({ userId: record.user_id, otp, secret: PASSWORD_RESET_SECRET });
+    if (!secureHashEquals(record.otp_hash, expectedHash)) {
+      const attempts = Number(record.attempt_count) + 1;
+      await connection.query(`UPDATE password_reset_otps SET attempt_count = ?, used_at = CASE WHEN ? >= 5 THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id = ?`, [attempts, attempts, record.id]);
+      await connection.commit();
+      return res.status(400).json({ success: false, message: 'รหัส OTP ไม่ถูกต้องหรือหมดอายุแล้ว' });
+    }
+    const resetToken = generateResetToken();
+    await connection.query('UPDATE password_reset_otps SET verified_at = CURRENT_TIMESTAMP, used_at = CURRENT_TIMESTAMP WHERE id = ?', [record.id]);
+    await connection.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL', [record.user_id]);
+    await connection.query(`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+      VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 10 MINUTE))`, [record.user_id, hashResetToken({ token: resetToken, secret: PASSWORD_RESET_SECRET })]);
+    await connection.commit();
+    return res.json({ success: true, resetToken, message: 'ยืนยันรหัส OTP สำเร็จ' });
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    console.error('Password recovery OTP verification error:', error);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถตรวจสอบรหัส OTP ได้ในขณะนี้' });
+  } finally {
+    connection.release();
+  }
+});
+
+app.post('/api/auth/password-recovery/reset-password', async (req, res) => {
+  const resetToken = String(req.body?.resetToken || '');
+  const password = String(req.body?.password || '');
+  if (!resetToken || password.length < 8) return res.status(400).json({ success: false, message: 'ข้อมูลการตั้งรหัสผ่านใหม่ไม่ถูกต้อง' });
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[record]] = await connection.query(`SELECT id, user_id, expires_at FROM password_reset_tokens
+      WHERE token_hash = ? AND used_at IS NULL AND expires_at > CURRENT_TIMESTAMP LIMIT 1 FOR UPDATE`, [hashResetToken({ token: resetToken, secret: PASSWORD_RESET_SECRET })]);
+    if (!record) {
+      await connection.commit();
+      return res.status(400).json({ success: false, message: 'ลิงก์ตั้งรหัสผ่านหมดอายุหรือถูกใช้งานแล้ว' });
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    await connection.query('UPDATE users SET password = ?, session_version = session_version + 1 WHERE id = ?', [passwordHash, record.user_id]);
+    await connection.query('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL', [record.user_id]);
+    await connection.query('UPDATE password_reset_otps SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL', [record.user_id]);
+    await connection.commit();
+    return res.json({ success: true, message: 'ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว กรุณาเข้าสู่ระบบอีกครั้ง' });
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    console.error('Password reset error:', error);
+    return res.status(500).json({ success: false, message: 'ไม่สามารถตั้งรหัสผ่านใหม่ได้ในขณะนี้' });
+  } finally {
+    connection.release();
   }
 });
 
@@ -1460,6 +1750,7 @@ app.get(
           full_name,
           phone,
           email,
+          email_verified_at,
           role
         FROM users
         WHERE id = ?
@@ -1534,6 +1825,7 @@ app.get(
           fullName: user.full_name,
           phone: user.phone,
           email: user.email,
+          emailVerified: Boolean(user.email_verified_at),
           role: user.role,
         },
 
@@ -2929,10 +3221,13 @@ app.get(
 // =================================
 
 const isBillingPeriod = (value) => /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || ""));
-const billingNumber = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
+const billingNumber = (value) => {
+  if (value === '' || value === null || value === undefined || String(value).trim() === '') return null;
+  return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
+};
 
 const utilityRoomsQuery = `
-  SELECT r.id AS room_id, r.room_number, COALESCE(c.monthly_rent, r.monthly_rent) AS rent_amount,
+  SELECT r.id AS room_id, r.room_number, r.floor, r.status AS room_status, COALESCE(c.monthly_rent, r.monthly_rent) AS rent_amount,
     c.id AS contract_id, c.tenant_id, u.full_name AS tenant_name,
     ur.id AS reading_id, ur.water_previous, ur.water_current, ur.water_units, ur.water_rate, ur.water_amount,
     ur.electric_previous, ur.electric_current, ur.electric_units, ur.electric_rate, ur.electric_amount,
@@ -3074,7 +3369,13 @@ app.get('/api/admin/utility/:period', authenticateToken, requireAdmin, async (re
   const { period } = req.params;
   if (!isBillingPeriod(period)) return res.status(400).json({ success: false, message: 'รอบบิลไม่ถูกต้อง' });
   try {
-    const [[rate]] = await db.query('SELECT * FROM utility_rate_periods WHERE billing_period = ?', [period]);
+    const [[savedRate]] = await db.query('SELECT * FROM utility_rate_periods WHERE billing_period = ?', [period]);
+    let latestRate = null;
+    if (!savedRate) {
+      const [latestRateRows] = await db.query('SELECT * FROM utility_rate_periods WHERE billing_period < ? ORDER BY billing_period DESC LIMIT 1', [period]);
+      latestRate = latestRateRows[0] || null;
+    }
+    const rate = savedRate || latestRate || null;
     const [rooms] = await db.query(utilityRoomsQuery, [period, period]);
     const result = await Promise.all(rooms.map(async (room) => {
       if (room.reading_id) return room;
@@ -3082,7 +3383,7 @@ app.get('/api/admin/utility/:period', authenticateToken, requireAdmin, async (re
         WHERE room_id = ? AND billing_period < ? ORDER BY billing_period DESC LIMIT 1`, [room.room_id, period]);
       return { ...room, water_previous: previous?.water_current ?? null, electric_previous: previous?.electric_current ?? null };
     }));
-    res.json({ success: true, data: { rate: rate || null, rooms: result } });
+    res.json({ success: true, data: { rate, rateCopiedFromPreviousPeriod: !savedRate && Boolean(latestRate), rooms: result } });
   } catch (error) {
     console.error('Load utility billing error:', error);
     res.status(500).json({ success: false, message: 'ไม่สามารถโหลดข้อมูลค่าน้ำค่าไฟได้' });
@@ -3168,6 +3469,7 @@ app.post('/api/admin/utility/:period/invoices', authenticateToken, requireAdmin,
         AND (? IS NULL OR r.id = ?)`, [period, roomId, roomId]);
     if (roomId && !rows.length && !missingReadings.length) { await connection.rollback(); return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลของห้องที่เลือก' }); }
     const skipped = missingReadings.map((room) => ({ roomId: room.room_id, roomNumber: room.room_number, message: 'ยังไม่ได้บันทึกมิเตอร์' })); let issued = 0;
+    const invoiceEmailEvents = [];
     const dueDate = `${period}-10`;
     for (const row of rows) {
       if (row.invoice_id) { skipped.push({ roomId: row.room_id, message: 'ออกใบแจ้งหนี้แล้ว' }); continue; }
@@ -3175,10 +3477,15 @@ app.post('/api/admin/utility/:period/invoices', authenticateToken, requireAdmin,
         VALUES (?, ?, ?, ?, 'pending', ?)`, [row.contract_id, row.tenant_id, row.total_amount, dueDate, `ค่าน้ำ ค่าไฟ และค่าเช่า รอบ ${period}`]);
       await connection.query(`INSERT INTO utility_invoices (reading_id, room_id, tenant_id, contract_id, payment_id, billing_period, due_date)
         VALUES (?, ?, ?, ?, ?, ?, ?)`, [row.id, row.room_id, row.tenant_id, row.contract_id, payment.insertId, period, dueDate]);
-      await createNotification(row.tenant_id, 'invoice', `ใบแจ้งหนี้ประจำเดือน ${period}`, `มียอดชำระใหม่ กำหนดชำระ ${dueDate}`, payment.insertId, '/user/payment', `invoice-issued:${row.room_id}:${period}`, connection);
+      const title = `ใบแจ้งหนี้ประจำเดือน ${period}`;
+      const body = `มียอดชำระใหม่ กำหนดชำระ ${dueDate}`;
+      const eventKey = `invoice-issued:${row.room_id}:${period}`;
+      const notification = await createNotification(row.tenant_id, 'invoice', title, body, payment.insertId, '/user/payment', eventKey, connection);
+      if (notification?.affectedRows) invoiceEmailEvents.push({ recipientId: row.tenant_id, type: 'invoice', title, body, eventKey });
       issued += 1;
     }
     await connection.commit();
+    invoiceEmailEvents.forEach((event) => { void deliverNotificationEmail(event); });
     const skippedRooms = skipped.map((item) => item.roomNumber || item.roomId).join(', ');
     res.json({ success: true, message: `ออกใบแจ้งหนี้สำเร็จ ${issued} ห้อง${skippedRooms ? ` (ยังไม่ออกบิล: ${skippedRooms})` : ''}`, issued, skipped });
   } catch (error) {
@@ -3300,7 +3607,7 @@ app.patch('/api/admin/payments/:paymentId/status', authenticateToken, requireAdm
 // Start Server
 // =================================
 
-const PORT = 4000;
+const PORT = Number(process.env.PORT || 4000);
 
 // Keep API failures JSON-only.  In particular, Express's JSON parser otherwise
 // returns an HTML error document for malformed request bodies.
@@ -3319,8 +3626,10 @@ app.use((error, req, res, next) => {
   return res.status(error.status || 500).json({ success: false, message: 'เกิดข้อผิดพลาดในระบบ' });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+if (process.env.NODE_ENV !== 'test') app.listen(PORT, "0.0.0.0", () => {
   console.log(
     `ขณะนี้เซิฟเวอร์กำลังรันอยู่บนพอร์ต http://localhost:${PORT} งับ`
   );
 });
+
+export default app;

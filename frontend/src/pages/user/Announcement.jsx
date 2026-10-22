@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
 
 const API_URL = "http://localhost:4000";
 
@@ -103,17 +104,17 @@ export default function Announcement() {
       </div>
 
 
-      <div className="card card-pad">
+      <div className="card card-pad announcement-list-card">
 
         {loading && (
-          <div>
+          <div className="announcement-state">
             กำลังโหลดประกาศ...
           </div>
         )}
 
 
         {!loading && error && (
-          <div>
+          <div className="announcement-state is-error">
             {error}
           </div>
         )}
@@ -123,7 +124,7 @@ export default function Announcement() {
           !error &&
           announcements.length === 0 && (
 
-            <div>
+            <div className="announcement-state">
               ขณะนี้ยังไม่มีประกาศ
             </div>
 
@@ -135,11 +136,12 @@ export default function Announcement() {
           announcements.map(
             (announcement) => (
 
-              <div
+              <article
                 className="announce-item"
                 key={announcement.id}
               >
 
+                <div className="announce-item-copy">
                 <div className="tag-lbl">
                   {announcement.category}
                 </div>
@@ -154,14 +156,17 @@ export default function Announcement() {
                   {announcement.content}
                 </p>
 
+                </div>
 
-                <div className="date">
+
+                <time className="date">
+                  <CalendarDays size={14} />
                   {formatDate(
                     announcement.created_at
                   )}
-                </div>
+                </time>
 
-              </div>
+              </article>
 
             )
           )}

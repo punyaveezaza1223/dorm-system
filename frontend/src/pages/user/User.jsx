@@ -84,11 +84,11 @@ export default function User() {
         </nav>
         <div className="resident-account">
           <div className="resident-notification-wrap"><button className="resident-notice" type="button" onClick={() => setNoticeOpen((open) => !open)} aria-label="การแจ้งเตือน"><Bell size={21} />{unread > 0 && <i>{unread > 99 ? '99+' : unread}</i>}</button>{noticeOpen && <section className="notification-dropdown"><header><b>การแจ้งเตือน</b><button onClick={() => { setNoticeOpen(false); navigate('/user/notifications'); }}>ดูทั้งหมด</button></header>{notifications.slice(0, 4).map((item) => <button className={`notification-mini ${item.read_at ? '' : 'unread'}`} key={item.id} onClick={() => openNotification(item)}><FileText size={18}/><span><b>{item.title}</b><small>{new Date(item.created_at).toLocaleString('th-TH')}</small></span></button>)}{!notifications.length && <p>ยังไม่มีการแจ้งเตือน</p>}<button className="notification-all" onClick={() => { setNoticeOpen(false); navigate('/user/notifications'); }}>ดูการแจ้งเตือนทั้งหมด →</button></section>}</div>
-          <div className="resident-avatar">{getAvatar()}</div>
+          <button className="resident-avatar resident-profile-trigger" type="button" onClick={() => navigate('/user/profile')} aria-label="ข้อมูลบัญชีของฉัน">{getAvatar()}</button>
           <button className="resident-logout" type="button" onClick={handleLogout}>ออกจากระบบ</button>
         </div>
       </header>
-      <main className="resident-main"><Outlet context={{ tenant, room }} /></main>
+      <main className="resident-main"><Outlet context={{ tenant, room, notifications, unread, updateTenant: setTenant }} /></main>
       <nav className="resident-mobile-nav" aria-label="เมนูผู้พักอาศัยบนมือถือ">
         {navigation.slice(0, 5).map((item) => {
           const Icon = item.icon;

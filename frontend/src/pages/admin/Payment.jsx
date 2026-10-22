@@ -1,22 +1,332 @@
-import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, ChevronLeft, ChevronRight, Eye, ReceiptText, Search, WalletCards, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  ReceiptText,
+  Search,
+  WalletCards,
+  XCircle,
+} from "lucide-react";
 
-const API = 'http://localhost:4000/api';
+const API = "http://localhost:4000/api";
 const PAGE_SIZE = 5;
-const statusLabel = (status) => ({ reviewing: 'รอตรวจสอบ', paid: 'อนุมัติแล้ว', rejected: 'ปฏิเสธ', overdue: 'ยังไม่ชำระ', pending: 'ยังไม่ชำระ' }[status] || status);
-const statusClass = (status) => ({ reviewing: 'reviewing', paid: 'paid', rejected: 'rejected', overdue: 'unpaid', pending: 'unpaid' }[status] || 'unpaid');
-const money = (value) => Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const when = (value) => value ? new Date(value).toLocaleString('th-TH') : '-';
-async function json(response) { const data = await response.json(); if (!response.ok || !data.success) throw new Error(data.message || 'ไม่สามารถทำรายการได้'); return data; }
+const statusLabel = (status) =>
+  ({
+    reviewing: "รอตรวจสอบ",
+    paid: "อนุมัติแล้ว",
+    rejected: "ปฏิเสธ",
+    overdue: "ยังไม่ชำระ",
+    pending: "ยังไม่ชำระ",
+  })[status] || status;
+const statusClass = (status) =>
+  ({
+    reviewing: "reviewing",
+    paid: "paid",
+    rejected: "rejected",
+    overdue: "unpaid",
+    pending: "unpaid",
+  })[status] || "unpaid";
+const money = (value) =>
+  Number(value || 0).toLocaleString("th-TH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+const when = (value) => (value ? new Date(value).toLocaleString("th-TH") : "-");
+async function json(response) {
+  const data = await response.json();
+  if (!response.ok || !data.success)
+    throw new Error(data.message || "ไม่สามารถทำรายการได้");
+  return data;
+}
 
 export default function Payment() {
-  const [payments, setPayments] = useState([]); const [query, setQuery] = useState(''); const [status, setStatus] = useState('all'); const [page, setPage] = useState(1); const [error, setError] = useState(''); const [slip, setSlip] = useState(null); const token = localStorage.getItem('token');
-  const load = async () => { try { setError(''); const data = await json(await fetch(`${API}/admin/payments`, { headers: { Authorization: `Bearer ${token}` } })); setPayments(data.data || []); } catch (err) { setError(err.message); } };
-  useEffect(() => { load(); }, []);
-  const update = async (id, nextStatus) => { try { await json(await fetch(`${API}/admin/payments/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ status: nextStatus }) })); await load(); } catch (err) { setError(err.message); } };
-  const filtered = useMemo(() => payments.filter((payment) => { const text = `${payment.room_number || ''} ${payment.tenant_name || ''}`.toLowerCase(); return (status === 'all' || payment.status === status || (status === 'unpaid' && ['pending', 'overdue'].includes(payment.status))) && text.includes(query.trim().toLowerCase()); }), [payments, query, status]);
-  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); const safePage = Math.min(page, pages); const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  useEffect(() => { setPage(1); }, [query, status]);
-  const month = new Date().toISOString().slice(0, 7); const awaiting = payments.filter((p) => p.status === 'reviewing'); const paidThisMonth = payments.filter((p) => p.status === 'paid' && String(p.paid_date || '').slice(0, 7) === month); const unpaid = payments.filter((p) => ['pending', 'overdue', 'rejected'].includes(p.status));
-  return <div className="admin-payment-page"><div className="admin-payment-crumb">ผู้ดูแลระบบ <span>/</span> การเงิน <span>/</span> ตรวจสอบการชำระเงิน</div><header className="admin-payment-heading"><div><div className="eyebrow">ตรวจสอบการเงิน</div><h1>รายการชำระเงินและตรวจสอบสลิป</h1><p>ตรวจสอบหลักฐานการชำระเงิน อนุมัติ หรือปฏิเสธรายการของผู้พักอาศัย</p></div></header>{error && <div className="alert alert-error">{error}</div>}<section className="admin-payment-summary"><article><span className="admin-payment-icon amber"><ReceiptText /></span><div><small>รออนุมัติสลิป</small><strong>{awaiting.length}</strong><em>ต้องตรวจสอบ</em></div></article><article><span className="admin-payment-icon blue"><WalletCards /></span><div><small>ยอดจัดเก็บเดือนนี้</small><strong>฿{money(paidThisMonth.reduce((sum, item) => sum + Number(item.amount || 0), 0))}</strong><em>{paidThisMonth.length} รายการที่อนุมัติแล้ว</em></div></article><article><span className="admin-payment-icon red"><XCircle /></span><div><small>ค้างชำระทั้งหมด</small><strong>฿{money(unpaid.reduce((sum, item) => sum + Number(item.amount || 0), 0))}</strong><em>{unpaid.length} รายการค้างชำระ</em></div></article></section><section className="admin-payment-table-card"><div className="admin-payment-tools"><label><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาห้อง หรือชื่อผู้เช่า" /></label><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="all">ทุกสถานะ</option><option value="reviewing">รอตรวจสอบ</option><option value="paid">อนุมัติแล้ว</option><option value="unpaid">ยังไม่ชำระ</option><option value="rejected">ปฏิเสธ</option></select></div><div className="table-wrap"><table className="admin-payment-table"><thead><tr><th>ห้อง</th><th>ผู้เช่า</th><th>รายการ / งวด</th><th>จำนวนเงิน</th><th>วันที่ส่ง</th><th>หลักฐาน</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{rows.length ? rows.map((payment) => <tr key={payment.id}><td><b>{payment.room_number}</b></td><td>{payment.tenant_name}</td><td><b>{payment.billing_period || payment.note || '-'}</b><small>{payment.note}</small></td><td className="admin-payment-money">฿{money(payment.amount)}</td><td>{payment.status === 'reviewing' ? when(payment.updated_at) : '-'}</td><td>{payment.slip_url ? <button className="slip-view-button" onClick={() => setSlip(payment)}><Eye size={16} /> ดูสลิป</button> : <span className="admin-payment-dash">—</span>}</td><td><span className={`admin-payment-badge ${statusClass(payment.status)}`}>{statusLabel(payment.status)}</span></td><td>{payment.status === 'reviewing' ? <div className="admin-payment-actions"><button className="approve" onClick={() => update(payment.id, 'paid')}><CheckCircle2 size={15} />อนุมัติ</button><button className="reject" onClick={() => update(payment.id, 'rejected')}>ปฏิเสธ</button></div> : <span className="admin-payment-dash">—</span>}</td></tr>) : <tr><td colSpan="8" className="admin-payment-empty">ไม่พบรายการที่ตรงกับเงื่อนไข</td></tr>}</tbody></table></div><footer className="admin-payment-pagination"><span>แสดงรายการที่ {filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0}–{Math.min(safePage * PAGE_SIZE, filtered.length)} จากทั้งหมด {filtered.length} รายการ</span><div><button disabled={safePage === 1} onClick={() => setPage((value) => value - 1)} aria-label="หน้าก่อน"><ChevronLeft size={18} /></button>{Array.from({ length: pages }, (_, index) => <button key={index + 1} className={safePage === index + 1 ? 'active' : ''} onClick={() => setPage(index + 1)}>{index + 1}</button>)}<button disabled={safePage === pages} onClick={() => setPage((value) => value + 1)} aria-label="หน้าถัดไป"><ChevronRight size={18} /></button></div></footer></section>{slip && <div className="admin-slip-modal" role="dialog" aria-modal="true"><section><button onClick={() => setSlip(null)}><XCircle /></button><h2>หลักฐานการชำระเงิน</h2><p>ห้อง {slip.room_number} · {slip.tenant_name} · ฿{money(slip.amount)}</p><img src={`http://localhost:4000${slip.slip_url}`} alt={`สลิปการชำระเงินห้อง ${slip.room_number}`} /></section></div>}</div>;
+  const [payments, setPayments] = useState([]);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState("");
+  const [slip, setSlip] = useState(null);
+  const token = localStorage.getItem("token");
+  const load = async () => {
+    try {
+      setError("");
+      const data = await json(
+        await fetch(`${API}/admin/payments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+      setPayments(data.data || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const update = async (id, nextStatus) => {
+    try {
+      await json(
+        await fetch(`${API}/admin/payments/${id}/status`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status: nextStatus }),
+        }),
+      );
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const filtered = useMemo(
+    () =>
+      payments.filter((payment) => {
+        const text =
+          `${payment.room_number || ""} ${payment.tenant_name || ""}`.toLowerCase();
+        return (
+          (status === "all" ||
+            payment.status === status ||
+            (status === "unpaid" &&
+              ["pending", "overdue"].includes(payment.status))) &&
+          text.includes(query.trim().toLowerCase())
+        );
+      }),
+    [payments, query, status],
+  );
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pages);
+  const rows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  useEffect(() => {
+    setPage(1);
+  }, [query, status]);
+  const month = new Date().toISOString().slice(0, 7);
+  const awaiting = payments.filter((p) => p.status === "reviewing");
+  const paidThisMonth = payments.filter(
+    (p) =>
+      p.status === "paid" && String(p.paid_date || "").slice(0, 7) === month,
+  );
+  const unpaid = payments.filter((p) =>
+    ["pending", "overdue", "rejected"].includes(p.status),
+  );
+  return (
+    <div className="admin-payment-page">
+      <div className="page" data-p="ad-dashboard">
+        <div className="page-head">
+          <div className="eyebrow">ตรวจสอบการเงิน</div>
+
+          <h2>รายการชำระเงินและตรวจสอบสลิป</h2>
+
+          <p>ตรวจสอบหลักฐานการชำระเงิน อนุมัติ หรือปฏิเสธรายการของผู้พักอาศัย</p>
+        </div>
+      </div>
+      {error && <div className="alert alert-error">{error}</div>}
+      <section className="admin-payment-summary">
+        <article>
+          <span className="admin-payment-icon amber">
+            <ReceiptText />
+          </span>
+          <div>
+            <small>รออนุมัติสลิป</small>
+            <strong>{awaiting.length}</strong>
+            <em>ต้องตรวจสอบ</em>
+          </div>
+        </article>
+        <article>
+          <span className="admin-payment-icon blue">
+            <WalletCards />
+          </span>
+          <div>
+            <small>ยอดจัดเก็บเดือนนี้</small>
+            <strong>
+              ฿
+              {money(
+                paidThisMonth.reduce(
+                  (sum, item) => sum + Number(item.amount || 0),
+                  0,
+                ),
+              )}
+            </strong>
+            <em>{paidThisMonth.length} รายการที่อนุมัติแล้ว</em>
+          </div>
+        </article>
+        <article>
+          <span className="admin-payment-icon red">
+            <XCircle />
+          </span>
+          <div>
+            <small>ค้างชำระทั้งหมด</small>
+            <strong>
+              ฿
+              {money(
+                unpaid.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+              )}
+            </strong>
+            <em>{unpaid.length} รายการค้างชำระ</em>
+          </div>
+        </article>
+      </section>
+      <section className="admin-payment-table-card">
+        <div className="admin-payment-tools">
+          <label>
+            <Search size={18} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="ค้นหาห้อง หรือชื่อผู้เช่า"
+            />
+          </label>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="all">ทุกสถานะ</option>
+            <option value="reviewing">รอตรวจสอบ</option>
+            <option value="paid">อนุมัติแล้ว</option>
+            <option value="unpaid">ยังไม่ชำระ</option>
+            <option value="rejected">ปฏิเสธ</option>
+          </select>
+        </div>
+        <div className="table-wrap">
+          <table className="admin-payment-table">
+            <thead>
+              <tr>
+                <th>ห้อง</th>
+                <th>ผู้เช่า</th>
+                <th>รายการ / งวด</th>
+                <th>จำนวนเงิน</th>
+                <th>วันที่ส่ง</th>
+                <th>หลักฐาน</th>
+                <th>สถานะ</th>
+                <th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                rows.map((payment) => (
+                  <tr key={payment.id}>
+                    <td>
+                      <b>{payment.room_number}</b>
+                    </td>
+                    <td>{payment.tenant_name}</td>
+                    <td>
+                      <b>{payment.billing_period || payment.note || "-"}</b>
+                      <small>{payment.note}</small>
+                    </td>
+                    <td className="admin-payment-money">
+                      ฿{money(payment.amount)}
+                    </td>
+                    <td>
+                      {payment.status === "reviewing"
+                        ? when(payment.updated_at)
+                        : "-"}
+                    </td>
+                    <td>
+                      {payment.slip_url ? (
+                        <button
+                          className="slip-view-button"
+                          onClick={() => setSlip(payment)}
+                        >
+                          <Eye size={16} /> ดูสลิป
+                        </button>
+                      ) : (
+                        <span className="admin-payment-dash">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className={`admin-payment-badge ${statusClass(payment.status)}`}
+                      >
+                        {statusLabel(payment.status)}
+                      </span>
+                    </td>
+                    <td>
+                      {payment.status === "reviewing" ? (
+                        <div className="admin-payment-actions">
+                          <button
+                            className="approve"
+                            onClick={() => update(payment.id, "paid")}
+                          >
+                            <CheckCircle2 size={15} />
+                            อนุมัติ
+                          </button>
+                          <button
+                            className="reject"
+                            onClick={() => update(payment.id, "rejected")}
+                          >
+                            ปฏิเสธ
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="admin-payment-dash">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="8" className="admin-payment-empty">
+                    ไม่พบรายการที่ตรงกับเงื่อนไข
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <footer className="admin-payment-pagination">
+          <span>
+            แสดงรายการที่ {filtered.length ? (safePage - 1) * PAGE_SIZE + 1 : 0}
+            –{Math.min(safePage * PAGE_SIZE, filtered.length)} จากทั้งหมด{" "}
+            {filtered.length} รายการ
+          </span>
+          <div>
+            <button
+              disabled={safePage === 1}
+              onClick={() => setPage((value) => value - 1)}
+              aria-label="หน้าก่อน"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            {Array.from({ length: pages }, (_, index) => (
+              <button
+                key={index + 1}
+                className={safePage === index + 1 ? "active" : ""}
+                onClick={() => setPage(index + 1)}
+              >
+                {index + 1}
+              </button>
+            ))}
+            <button
+              disabled={safePage === pages}
+              onClick={() => setPage((value) => value + 1)}
+              aria-label="หน้าถัดไป"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </footer>
+      </section>
+      {slip && (
+        <div className="admin-slip-modal" role="dialog" aria-modal="true">
+          <section>
+            <button onClick={() => setSlip(null)}>
+              <XCircle />
+            </button>
+            <h2>หลักฐานการชำระเงิน</h2>
+            <p>
+              ห้อง {slip.room_number} · {slip.tenant_name} · ฿
+              {money(slip.amount)}
+            </p>
+            <img
+              src={`http://localhost:4000${slip.slip_url}`}
+              alt={`สลิปการชำระเงินห้อง ${slip.room_number}`}
+            />
+          </section>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -7,7 +7,18 @@ const money = (v) => Number(v || 0).toLocaleString('th-TH', { minimumFractionDig
 const invoiceNo = (i) => `INV-${i.billing_period}-${i.room_number}`;
 const label = (s) => ({ pending: 'รอชำระเงิน', overdue: 'ค้างชำระ', reviewing: 'รอตรวจสอบ', paid: 'ชำระแล้ว', rejected: 'ปฏิเสธการชำระเงิน' }[s] || s);
 const payable = (s) => ['pending', 'overdue', 'rejected'].includes(s);
-const thaiDate = (v) => v ? new Date(v).toLocaleDateString('th-TH') : '-';
+const thaiDate = (v) => {
+  if (!v) return '-';
+
+  const date = new Date(v);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return date.toLocaleDateString('th-TH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
 const mockPaymentSettings = { bank_name: 'ธนาคารตัวอย่าง', account_name: 'KPN Haven (ข้อมูลทดสอบ)', account_number: '123-4-56789-0', qr_image_url: '/uploads/demo-payment-qr.svg', is_demo: true };
 async function json(r) { const d = await r.json(); if (!r.ok || !d.success) throw new Error(d.message || 'ทำรายการไม่สำเร็จ'); return d; }
 
@@ -39,7 +50,7 @@ export default function Payment() {
   useEffect(() => { load(); }, [token]);
   if (loading) return <div className="tenant-payment-loading">กำลังโหลดข้อมูลการชำระเงิน...</div>;
   const period = new Date().toISOString().slice(0, 7); const current = invoices.find((i) => i.billing_period === period && payable(i.status)) || invoices.find((i) => payable(i.status)); const history = invoices.filter((i) => i.status === 'paid');
-  const open = (invoice) => { setSelected(invoice); setMode('invoice'); };
+  const open = (invoice) => { setSelected({ ...invoice, due_date: thaiDate(invoice.due_date) }); setMode('invoice'); };
   const submitted = () => { setInvoices((items) => items.map((i) => i.payment_id === selected.payment_id ? { ...i, status: 'reviewing' } : i)); setMode('submitted'); };
   const dismiss = () => { setSelected(null); setMode(null); };
   return <div className="tenant-payment-page"><header className="tenant-payment-heading"><span>สวัสดี, {tenant?.fullName || 'ผู้พักอาศัย'}</span><h1>ภาพรวมห้องพักของคุณ</h1><p>ติดตามใบแจ้งหนี้และประวัติการชำระเงินของคุณ</p></header>{error && <p className="qr-form-error">{error}</p>}<section className="tenant-room-card"><div><span className="tenant-section-label">ห้องพักของคุณ</span><div className="tenant-room-title"><strong>{room?.room_number || '-'}</strong><span className="tenant-active-status"><i />Active Status</span></div><p>ชั้น {room?.floor || '-'} · {room?.type || '-'}</p></div><div className="tenant-room-actions"><button className="tenant-primary-action" disabled={!current} onClick={() => open(current)}><BadgeDollarSign size={20} />ชำระเงินทันที</button><button className="tenant-secondary-action" onClick={() => navigate('/user/repair')}><Wrench size={19} />แจ้งซ่อม</button></div></section><section className="tenant-bill-cards"><article className="tenant-bill-card"><span className="tenant-bill-icon rent"><BadgeDollarSign size={23} /></span><p>ค่าเช่าเดือนนี้</p><strong>{current ? `฿${money(current.rent_amount)}` : 'ยังไม่มีบิล'}</strong><small>{current ? label(current.status) : 'ผู้ดูแลยังไม่ได้ออกใบแจ้งหนี้'}</small></article><article className="tenant-bill-card"><span className="tenant-bill-icon utility"><Droplets size={23} /></span><p>ค่าน้ำ-ไฟเดือนนี้</p>{current ? <><small>ค่าน้ำ ฿{money(current.water_amount)} · ค่าไฟ ฿{money(current.electric_amount)}</small><strong>฿{money(Number(current.water_amount) + Number(current.electric_amount))}</strong></> : <><strong>—</strong><small>รอข้อมูลจากใบแจ้งหนี้</small></>}</article></section><section className="tenant-payment-panel"><div className="tenant-payment-panel-head"><h2>ประวัติการชำระเงิน</h2><span>{history.length} รายการ</span></div>{history.length ? <div className="payment-history-list">{history.map((i) => <article className="tenant-payment-row" key={i.id}><span className="tenant-receipt-icon"><FileText size={25} /></span><div><strong>{i.billing_period} · {invoiceNo(i)}</strong><small>ชำระเมื่อ {thaiDate(i.paid_date)}</small></div><div className="tenant-payment-amount"><strong>฿{money(i.total_amount)}</strong><span className="tenant-payment-state paid">ชำระแล้ว</span><button className="history-detail-button" onClick={() => open(i)}>ดูรายละเอียด</button></div></article>)}</div> : <article className="tenant-payment-row tenant-no-payment"><span className="tenant-receipt-icon"><ReceiptText size={25} /></span><b>ยังไม่มีประวัติการชำระเงิน</b></article>}</section>{mode === 'invoice' && selected && <InvoiceModal invoice={selected} close={dismiss} proceed={() => setMode('qr')} />}{mode === 'qr' && selected && <QrPaymentModal invoice={selected} close={dismiss} back={() => setMode('invoice')} complete={submitted} />}{mode === 'submitted' && selected && <SubmittedModal invoice={selected} close={dismiss} />}</div>;

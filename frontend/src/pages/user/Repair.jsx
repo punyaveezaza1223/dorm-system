@@ -235,9 +235,9 @@ export default function Repair() {
         {/* ฟอร์มแจ้งซ่อม */}
         {/* ================================= */}
 
-        <div className="card card-pad">
+        <div className="card card-pad repair-form-card">
 
-          <h4 style={{ marginBottom: '16px', fontSize: '15px' }}>
+          <h4 className="repair-form-heading">
             แจ้งซ่อมรายการใหม่
           </h4>
 
@@ -254,6 +254,7 @@ export default function Repair() {
                 { value: 'อื่น ๆ', label: 'อื่น ๆ' },
               ]}
               value={category}
+              placeholder="เลือกหมวดหมู่ปัญหา"
                onChange={(e) => setCategory(e.target.value)}
               aria-label="หมวดหมู่ปัญหา"
             />
@@ -335,13 +336,14 @@ export default function Repair() {
         {/* ประวัติแจ้งซ่อม */}
         {/* ================================= */}
 
-        <div id="repair-history" className="card card-pad">
+        <div className="repair-history-column">
+        <div id="repair-history" className="card card-pad repair-history-card">
 
-          <h4 style={{ marginBottom: '14px', fontSize: '15px' }}>
+          <h4 className="repair-history-heading">
             ประวัติการแจ้งซ่อม
           </h4>
 
-          <div className="col gap-16">
+          <div className="repair-history-list">
 
             {repairs.length === 0 ? (
 
@@ -360,34 +362,21 @@ export default function Repair() {
 
               repairs.map((repair) => (
 
-                <div
-                  className="row between"
-                  style={{ alignItems: 'flex-start' }}
-                  key={repair.id}
-                >
+                <article className="repair-history-item" key={repair.id}>
 
-                  <div>
+                  <div className="repair-history-copy">
 
-                    <b style={{ fontSize: '13.8px' }}>
-                      #{String(repair.id).padStart(4, '0')} {repair.category}
-                    </b>
+                    <span className="repair-history-id">#{String(repair.id).padStart(4, '0')}</span>
+                    <b className="repair-history-title">{repair.category}</b>
 
                     <div
-                      style={{
-                        fontSize: '12.5px',
-                        color: 'var(--text-faint)',
-                        marginTop: '3px',
-                      }}
+                      className="repair-history-description"
                     >
                       {repair.description}
                     </div>
 
                     <div
-                      style={{
-                        fontSize: '12.5px',
-                        color: 'var(--text-faint)',
-                        marginTop: '3px',
-                      }}
+                      className="repair-history-date"
                     >
                       แจ้ง {formatDate(repair.created_at)}
                     </div>
@@ -395,11 +384,11 @@ export default function Repair() {
 
                   </div>
 
-                  <span className={`badge ${getStatusClass(repair.status)}`}>
+                  <span className={`badge repair-history-status ${getStatusClass(repair.status)}`}>
                     {getStatusText(repair.status)}
                   </span>
 
-                </div>
+                </article>
 
               ))
 
@@ -408,6 +397,15 @@ export default function Repair() {
           </div>
 
         </div>
+        </div>
+
+        <aside className="repair-emergency-card" aria-labelledby="repair-emergency-title">
+          <h3 id="repair-emergency-title">ต้องการความช่วยเหลือด่วน?</h3>
+          <p>หากมีเหตุฉุกเฉิน เช่น ไฟไหม้ หรือน้ำท่วมใหญ่ โปรดติดต่อเจ้าหน้าที่ทันที</p>
+          <a href="tel:021234567" aria-label="โทรหาเจ้าหน้าที่ที่หมายเลข 02-123-4567">
+            <span aria-hidden="true">☎</span> 02-123-4567
+          </a>
+        </aside>
 
       </div>
 

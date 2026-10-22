@@ -8,7 +8,14 @@
     "dev": "node server.js",
     "migrate": "node migrations/run-migrations.js",
     "inspect:rooms": "node scripts/inspect-rooms-schema.js",
-    "test:rooms": "node scripts/test-room-api.js"
+    "test:rooms": "node scripts/test-room-api.js",
+    "check:otp-test-db": "node scripts/check-otp-test-db.js",
+    "prepare:otp-test-account": "node scripts/prepare-otp-test-account.js",
+    "test:otp-request-4010": "node scripts/request-otp-test-server.js",
+    "check:brevo-readiness": "node scripts/check-brevo-readiness.js",
+    "test:password-recovery": "node --test test/passwordRecovery.test.js test/emailService.test.js",
+    "test:email-verification": "node --test test/emailVerification.test.js test/emailVerificationRoute.test.js",
+    "test:password-recovery:integration": "node scripts/test-password-recovery-integration.js"
   },
   "keywords": [],
   "author": "",

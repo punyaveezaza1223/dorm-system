@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 function Login() {
@@ -173,7 +173,7 @@ function Login() {
         return;
       }
 
-      alert('สมัครสมาชิกเรียบร้อยแล้ว กรุณาเข้าสู่ระบบ');
+      alert('สมัครสมาชิกเรียบร้อยแล้ว โปรดตรวจสอบอีเมลและกดลิงก์ยืนยันก่อนใช้การกู้คืนบัญชีผ่าน OTP');
 
       setRegisterData({
         firstName: '',
@@ -191,7 +191,7 @@ function Login() {
         password: '',
       });
 
-      setMessage('สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ');
+      setMessage('สมัครสมาชิกสำเร็จ โปรดตรวจสอบอีเมลเพื่อยืนยันบัญชี');
     } catch (error) {
       console.error('Register Error:', error);
       setMessage('ไม่สามารถเชื่อมต่อ Backend ได้ กรุณาตรวจสอบ Server');
@@ -363,7 +363,14 @@ function Login() {
               </button>
 
               <div className="switch-line">
-                ลืมรหัสผ่าน? <b>กู้คืนบัญชี</b>
+                ลืมรหัสผ่าน?{' '}
+                <button
+                  type="button"
+                  className="text-link"
+                  onClick={() => navigate('/recover-account')}
+                >
+                  กู้คืนบัญชี
+                </button>
               </div>
             </form>
           )}

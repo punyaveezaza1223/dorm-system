@@ -5,14 +5,34 @@ import { ClipboardCheck, FileText, MessageCircle, Package, ReceiptText, Wrench }
 const API = 'http://localhost:4000/api';
 const money = (value) => Number(value || 0).toLocaleString('th-TH');
 const invoiceNumber = (invoice) => `INV-${invoice.billing_period}-${invoice.room_number}`;
+const thaiShortDate = (value) => {
+  if (!value) return '-';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
 const statusLabel = (status) => ({ pending: 'รอชำระเงิน', overdue: 'ค้างชำระ', reviewing: 'รอตรวจสอบ', paid: 'ชำระแล้ว', rejected: 'ปฏิเสธการชำระเงิน' }[status] || status);
 const asJson = async (response) => { if (!response.headers.get('content-type')?.includes('application/json')) throw new Error(`API error ${response.status}`); return response.json(); };
 
 export default function Dashboard() {
-  const navigate = useNavigate(); const { tenant, room } = useOutletContext();
-  const [invoices, setInvoices] = useState([]); const [repairs, setRepairs] = useState([]); const [announcements, setAnnouncements] = useState([]); const [loading, setLoading] = useState(true);
+  const navigate = useNavigate(); const { tenant, room, notifications = [] } = useOutletContext();
+  let [invoices, setInvoices] = useState([]); const [repairs, setRepairs] = useState([]); let [announcements, setAnnouncements] = useState([]); const [loading, setLoading] = useState(true);
   useEffect(() => { const load = async () => { try { const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` }; const results = await Promise.all([fetch(`${API}/tenant/invoices`, { headers }), fetch(`${API}/tenant/repairs`, { headers }), fetch(`${API}/announcements`, { headers })]); if (results.some((result) => result.status === 401 || result.status === 403)) return navigate('/'); const [invoiceData, repairData, announcementData] = await Promise.all(results.map(asJson)); setInvoices(invoiceData.data || []); setRepairs(repairData.data || []); setAnnouncements(announcementData.data || []); } catch (error) { console.error('Dashboard:', error); } finally { setLoading(false); } }; load(); }, [navigate]);
   if (loading) return <div className="resident-dashboard resident-page-loading">กำลังโหลดข้อมูล...</div>;
+  invoices = invoices.map((item) => ({
+    ...item,
+    due_date: thaiShortDate(item.due_date),
+  }));
+  announcements = announcements.map((item) => ({
+    ...item,
+    created_at: thaiShortDate(item.created_at),
+  }));
   const currentPeriod = new Date().toISOString().slice(0, 7); const payable = ['pending', 'overdue', 'rejected'];
   // If an administrator issued the next selected cycle early, it is still a
   // real actionable bill and must not be hidden behind "ยังไม่มีบิล".
@@ -21,9 +41,27 @@ export default function Dashboard() {
   const latestBill = invoices[0]; const repair = repairs[0];
   const step = repair?.status === 'completed' ? 4 : repair?.status === 'in_progress' ? 3 : repair ? 1 : 0;
   const repairLabel = repair?.status === 'completed' ? 'เสร็จสิ้น' : repair?.status === 'in_progress' ? 'กำลังซ่อม' : 'รอรับเรื่อง';
+  const unreadFor = (...types) => notifications.filter((item) => !item.read_at && types.includes(item.type)).length;
   return <div className="resident-dashboard home-dashboard">
     <section className="resident-hero"><div><p className="resident-greeting">สวัสดีคุณ {tenant?.fullName || 'ผู้พักอาศัย'}</p><h1>จัดการเรื่องห้องพักได้ในที่เดียว</h1><p className="resident-room">ห้อง {room?.room_number || '-'} · ชั้น {room?.floor || '-'}</p></div><div className="resident-bill-summary"><span>ยอดที่ต้องชำระเดือนนี้</span><strong>{currentBill ? `฿${money(currentBill.total_amount)}` : 'ยังไม่มีบิล'}</strong><button disabled={!currentBill} onClick={() => navigate('/user/payment')}>ชำระเงินตอนนี้</button></div></section>
-    <section className="resident-quick-grid"><button onClick={() => navigate('/user/payment')}><span className="quick-icon"><ReceiptText size={20} /></span><b>ชำระค่าเช่า</b><small>บิลและการเงิน</small></button><button onClick={() => navigate('/user/repair')}><span className="quick-icon"><Wrench size={20} /></span><b>แจ้งซ่อม</b><small>ปัญหาภายในห้อง</small></button><button onClick={() => navigate('/user/complaint')}><span className="quick-icon"><MessageCircle size={20} /></span><b>ติดต่อผู้ดูแล</b><small>พูดคุยกับเจ้าหน้าที่</small></button><button onClick={() => navigate('/user/parcel')}><span className="quick-icon"><Package size={20} /></span><b>พัสดุของฉัน</b><small>ตรวจสอบรายการ</small></button></section>
+    <section className="resident-quick-grid">
+      <button className="resident-quick-link" onClick={() => navigate('/user/payment')}>
+        {unreadFor('invoice', 'payment') > 0 && <span className="quick-notification">{unreadFor('invoice', 'payment') > 99 ? '99+' : unreadFor('invoice', 'payment')}</span>}
+        <span className="quick-icon"><ReceiptText size={20} /></span><b>ชำระค่าเช่า</b><small>บิลและการเงิน</small>
+      </button>
+      <button className="resident-quick-link" onClick={() => navigate('/user/repair')}>
+        {unreadFor('repair') > 0 && <span className="quick-notification">{unreadFor('repair') > 99 ? '99+' : unreadFor('repair')}</span>}
+        <span className="quick-icon"><Wrench size={20} /></span><b>แจ้งซ่อม</b><small>ปัญหาภายในห้อง</small>
+      </button>
+      <button className="resident-quick-link" onClick={() => navigate('/user/complaint')}>
+        {unreadFor('complaint') > 0 && <span className="quick-notification">{unreadFor('complaint') > 99 ? '99+' : unreadFor('complaint')}</span>}
+        <span className="quick-icon"><MessageCircle size={20} /></span><b>ติดต่อผู้ดูแล</b><small>พูดคุยกับเจ้าหน้าที่</small>
+      </button>
+      <button className="resident-quick-link" onClick={() => navigate('/user/parcel')}>
+        {unreadFor('parcel') > 0 && <span className="quick-notification">{unreadFor('parcel') > 99 ? '99+' : unreadFor('parcel')}</span>}
+        <span className="quick-icon"><Package size={20} /></span><b>พัสดุของฉัน</b><small>ตรวจสอบรายการ</small>
+      </button>
+    </section>
     <section className="resident-dashboard-columns"><div className="resident-panel"><div className="resident-panel-head"><h2>บิลล่าสุด</h2><button onClick={() => navigate('/user/payment')}>ดูทั้งหมด</button></div>{latestBill ? <div className="resident-bill-row"><div><b>{latestBill.billing_period} · {invoiceNumber(latestBill)}</b><small>ครบกำหนด {latestBill.due_date || '-'}</small></div><div><strong>฿{money(latestBill.total_amount)}</strong><span className={`resident-status invoice-status ${latestBill.status}`}>{statusLabel(latestBill.status)}</span><button className="resident-bill-detail" onClick={() => navigate('/user/payment')}>ดูรายละเอียดบิล</button></div></div> : <div className="resident-empty">ยังไม่มีบิล</div>}<div className="resident-subsection"><div className="resident-panel-head"><h2>สถานะแจ้งซ่อมล่าสุด</h2><button onClick={() => navigate('/user/repair')}>ดูทั้งหมด</button></div>{repair ? <div className="repair-mini"><div className="repair-mini-title"><div><b>#{repair.id} · {repair.category || 'รายการแจ้งซ่อม'}</b><small>{repair.description}</small></div><span className={`repair-mini-badge ${repair.status}`}>{repairLabel}</span></div><div className="repair-mini-progress">{[['แจ้งซ่อม', 1], ['รับเรื่อง', 2], ['กำลังซ่อม', 3], ['เสร็จสิ้น', 4]].map(([label, number]) => <div key={number}><span className={number <= step ? 'done' : ''}>{number <= step ? '✓' : number}</span><small>{label}</small></div>)}</div><button className="repair-mini-button" onClick={() => navigate('/user/repair')}>ดูรายละเอียดทั้งหมด</button></div> : <div className="resident-empty"><ClipboardCheck size={34} /><p>ยังไม่มีรายการแจ้งซ่อม</p></div>}</div></div><div className="resident-panel"><div className="resident-panel-head"><h2>ประกาศจากหอพัก</h2><button onClick={() => navigate('/user/announcement')}>ดูทั้งหมด</button></div>{announcements.length ? announcements.slice(0, 3).map((item) => <article className="resident-notice-row" key={item.id}><i /><div><b>{item.title}</b><small>{item.created_at}</small></div></article>) : <div className="resident-empty">ยังไม่มีประกาศในขณะนี้</div>}</div></section>
   </div>;
 }

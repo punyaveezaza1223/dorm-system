@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Megaphone, MessageCircle } from 'lucide-react';
 import CustomDropdown from '../../components/CustomDropdown';
 
 export default function Complaint() {
@@ -235,12 +236,16 @@ export default function Complaint() {
       </div>
 
 
-      <div className="two-col">
+      <div className="two-col complaint-layout">
 
         {/* =================================
             FORM
         ================================= */}
-        <div className="card card-pad">
+        <div className="card card-pad complaint-form-card">
+
+          <h4 className="complaint-form-heading">
+            <span><Megaphone size={19} /></span>ส่งเรื่องร้องเรียนใหม่
+          </h4>
 
           {/* หัวข้อ */}
           <div className="field">
@@ -293,6 +298,8 @@ export default function Complaint() {
               ]}
 
               value={type}
+
+              placeholder="เลือกประเภทเรื่องร้องเรียน"
 
               onChange={(e) =>
                 setType(e.target.value)
@@ -374,7 +381,7 @@ export default function Complaint() {
           {/* Submit */}
           <button
             type="button"
-            className="btn btn-primary btn-block"
+            className="btn btn-primary btn-block complaint-submit"
             onClick={handleSubmit}
             disabled={loading}
           >
@@ -383,21 +390,20 @@ export default function Complaint() {
               : 'ส่งเรื่องร้องเรียน'}
           </button>
 
+          <p className="complaint-privacy-note">ข้อมูลของคุณจะไม่ถูกเปิดเผยต่อบุคคลทั่วไป</p>
+
         </div>
 
 
         {/* =================================
             HISTORY
         ================================= */}
-        <div className="card card-pad">
+        <div className="complaint-history-column">
+        <div className="card card-pad complaint-history-card">
 
-          <h4
-            style={{
-              marginBottom: '14px',
-              fontSize: '15px',
-            }}
-          >
+          <h4 className="complaint-history-heading">
             เรื่องร้องเรียนของฉัน
+            <span>ทั้งหมด</span>
           </h4>
 
 
@@ -409,7 +415,7 @@ export default function Complaint() {
 
           ) : complaints.length ? (
 
-            <div className="col gap-16">
+            <div className="complaint-history-list">
 
               {complaints.map((complaint) => {
 
@@ -420,27 +426,17 @@ export default function Complaint() {
 
                 return (
                   <div
-                    className="row between"
+                    className="row between complaint-history-item"
                     key={complaint.id}
                   >
 
-                    <div>
+                    <div className="complaint-history-copy">
 
-                      <b
-                        style={{
-                          fontSize: '13.8px',
-                        }}
-                      >
+                      <b className="complaint-history-title">
                         {complaint.title}
                       </b>
 
-                      <div
-                        style={{
-                          fontSize: '12.5px',
-                          color:
-                            'var(--text-faint)',
-                        }}
-                      >
+                      <div className="complaint-history-date">
                         {formatComplaintDate(
                           complaint.created_at
                         )}
@@ -449,7 +445,7 @@ export default function Complaint() {
                     </div>
 
                     <span
-                      className={`badge ${status.className}`}
+                      className={`badge complaint-history-status ${status.className}`}
                     >
                       {status.label}
                     </span>
@@ -468,6 +464,16 @@ export default function Complaint() {
 
           )}
 
+        </div>
+        <aside className="complaint-support-card">
+          <span className="complaint-support-icon"><MessageCircle size={20} /></span>
+          <h3>เจ้าหน้าที่พร้อมช่วยเหลือ</h3>
+          <p>มีข้อสงสัยหรือคำถามเพิ่มเติม สามารถสอบถามเจ้าหน้าที่ได้โดยตรงที่นี่</p>
+          <button type="button" onClick={() => triggerToast('เจ้าหน้าที่จะติดต่อกลับโดยเร็วที่สุด')}>
+            <MessageCircle size={16} /> แชทกับเจ้าหน้าที่
+          </button>
+          <small>เวลาทำการ: 09:00 - 18:00 น.</small>
+        </aside>
         </div>
 
       </div>

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test:password-recovery": "node --test test/passwordRecoveryApi.test.js",
+    "test:email-verification": "node --test test/emailVerificationApi.test.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
